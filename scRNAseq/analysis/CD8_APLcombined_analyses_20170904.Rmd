@@ -1,0 +1,571 @@
+---
+title: "CD8_APLcombined_analysis_2017"
+author: "Arianne Richard"
+date: "5/14/2017"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+knitr::opts_knit$set(root.dir = '~/Documents/Post_doc/Sync/Experiments/scRNA-seq/naive APLs combined analyses/RMD_files/')
+```
+
+This file walks through all of the analyses combining the single-cell transcriptomic data from both runs to gain more power for particular analyses.
+
+First we load the data, remove uninformative genes, and normalize the data together.
+
+
+```{r}
+library(scater)
+library(scran)
+library(RColorBrewer)
+library(gplots)
+source('dpt_plots.R')
+source('dpt.R')
+
+sce1 <- readRDS('sce_run1.rds')
+sce2 <- readRDS('sce_run2.rds')
+
+## filter to remove non-expressed genes -- require detection in at least 5% of cells in each batch
+drop_filt <- apply(counts(sce1), 1, function(y) {length(which(y>0)) >= ncol(sce1)*0.05})
+sce1 <- sce1[drop_filt,]
+mean_filt <- apply(counts(sce1), 1, function(y) {mean(y) >=1})
+sce1 <- sce1[mean_filt,]
+drop_filt <- apply(counts(sce2), 1, function(y) {length(which(y>0)) >= ncol(sce2)*0.05})
+sce2 <- sce2[drop_filt,]
+mean_filt <- apply(counts(sce2), 1, function(y) {mean(y) >=1})
+sce2 <- sce2[mean_filt,]
+
+## fix condition factors empty levels
+sce1$Sorted.Cell.Type <- factor(as.character(sce1$Sorted.Cell.Type))
+sce2$Sorted.Cell.Type <- factor(as.character(sce2$Sorted.Cell.Type))
+
+## fix the conditionlabels on sce1 to be the same as those on sce2
+groups <- as.character(pData(sce1)$Sorted.Cell.Type)
+groups[groups %in% 'N4'] <- 'N4 6h'
+groups[groups %in% 'T4'] <- 'T4 6h'
+groups[groups %in% 'G4'] <- 'G4 6h'
+groups[groups %in% 'NP68'] <- 'NP68 6h'
+pData(sce1)$Sorted.Cell.Type <- groups
+
+## add a phenoData column that reflects both batch and plate
+pData(sce1)$batch <- paste0('batch1 ', pData(sce1)$Original.sort.plate)
+pData(sce2)$batch <- paste0('batch2 ', pData(sce2)$Original.sort.plate)
+
+## make them all have the same phenoData columns
+pData(sce1) <- pData(sce1)[,colnames(pData(sce1)) %in% colnames(pData(sce2))]
+pData(sce2) <- pData(sce2)[,colnames(pData(sce2)) %in% colnames(pData(sce1))]
+
+## make them all have the same featureData columns
+fData(sce1) <- fData(sce1)[colnames(fData(sce1)) %in% colnames(fData(sce2)),]
+fData(sce2) <- fData(sce2)[colnames(fData(sce2)) %in% colnames(fData(sce1)),]
+
+## make sure all genes same
+sce1 <- sce1[rownames(exprs(sce1)) %in% rownames(exprs(sce2)),]
+sce2 <- sce2[rownames(exprs(sce2)) %in% rownames(exprs(sce1)),]
+table(rownames(sce1)==rownames(sce2))
+
+## mergeSCESets
+sce <- mergeSCESet(sce1, sce2, fdata_cols=c(13, 20))
+
+## calculate spike factors for the data
+sce <- computeSpikeFactors(sce, general.use=TRUE)
+
+## normalise the data
+sce <- normalise(sce, exprs_values='counts', return_norm_as_exprs=TRUE, logExprsOffset=1)
+## let's look at the spike factors
+plot(log10(sce$size_factor), log10(sce$total_counts), xlab='ERCC factor', ylab='total counts',
+     col=c('blue', 'darkgreen','red', 'orange', 'purple', 'magenta')[factor(sce$batch)])
+legend('bottomright', legend=levels(factor(sce$batch)), 
+       fill=c('blue', 'darkgreen','red', 'orange', 'purple', 'magenta'), bty='n')
+
+```
+
+The second batch seems to have fewer reads but a similar ratio of cellular to ERCC reads.   Now let's correct for any batch effects.
+
+```{r}
+## let's look at the batch effect
+pcs <- prcomp(t(as.matrix(exprs(sce[!isSpike(sce),]))), scale=TRUE)
+par(mgp=c(2,1,0), bty='l')
+plot(pcs$x[,1], pcs$x[,2], xlab='PC1', ylab='PC2', 
+     col=c('blue', 'darkgreen','red', 'orange', 'purple', 'magenta')[factor(sce$batch)], pch=16, cex.lab=1.2)
+legend('bottomleft', legend=levels(factor(sce$batch)), 
+       fill=c('blue', 'darkgreen','red', 'orange', 'purple', 'magenta'), ncol=2, bty='n')
+
+## then do the batch correction
+library(sva)
+mod <- model.matrix(~Sorted.Cell.Type, data=pData(sce))
+combat_sce <- ComBat(dat=exprs(sce), batch=pData(sce)$batch, mod=mod, par.prior=TRUE, prior.plots=FALSE)
+exprs(sce) <- combat_sce
+
+## and check it again
+pcs <- prcomp(t(as.matrix(exprs(sce[!isSpike(sce),]))), scale=TRUE)
+par(mgp=c(2,1,0), bty='l')
+plot(pcs$x[,1], pcs$x[,2], xlab='PC1', ylab='PC2', 
+     col=c('blue', 'darkgreen','red', 'orange', 'purple', 'magenta')[factor(sce$batch)], pch=16, cex.lab=1.2)
+legend('bottomleft', legend=levels(factor(sce$batch)), 
+       fill=c('blue', 'darkgreen','red', 'orange', 'purple', 'magenta'), ncol=2, bty='n')
+
+## and finally look by condition or protein expression
+
+plotPCs <- function(x, cols, legend='', legend_cols){
+  par(mfrow=c(2,2), mgp=c(2,0.5,0), mar=c(3,3.5,0.2,0.2), bty='l')
+  plot(x[,1], x[,2], xlab='', ylab='PC2', pch=16, col=cols, cex.lab=1.5)
+  plot.new()
+  if(legend !=''){
+    legend('center', legend=legend, 
+         fill=legend_cols, 
+         bty='n', ncol=2)
+  }
+  plot(x[,1], x[,3], xlab='PC1', ylab='PC3', pch=16, col=cols, cex.lab=1.5)
+  plot(x[,2], x[,3], xlab='PC2', ylab='', pch=16, col=cols, cex.lab=1.5)
+}
+
+
+cols <- as.character(pData(sce)$Sorted.Cell.Type)
+cols[cols %in% 'N4 6h'] <- 'red'
+cols[cols %in% 'N4 3h'] <- 'orange'
+cols[cols %in% 'N4 1h'] <- 'gold'
+cols[cols %in% 'unstimulated'] <- 'grey'
+cols[cols %in% 'T4 6h'] <- 'green3'
+cols[cols %in% 'G4 6h'] <- 'blue'
+cols[cols %in% 'NP68 6h'] <- 'grey40'
+
+plotPCs(pcs$x, cols, legend=c('0h', '1h', '3h', '6h', 'T4 6h', 'G4 6h', 'NP68 6h'), 
+        legend_cols=c('grey', 'gold', 'orange', 'red', 'green3', 'blue', 'grey40'))
+
+pdf('PCs_combrun_spikenorm_filt05.pdf', height=8, width=8)
+plotPCs(pcs$x, cols, legend=c('0h', '1h', '3h', '6h', 'T4 6h', 'G4 6h', 'NP68 6h'), 
+        legend_cols=c('grey', 'gold', 'orange', 'red', 'green3', 'blue', 'grey40'))
+dev.off()
+
+## Now we plot PCs coloured by protein expression, except that we must plot only one sequencing run to avoid date-specific differences in flow protein measurements.
+
+library(viridis)
+colCD69 <- viridis(100)[as.numeric(cut(pData(sce[,sce$Sort.date %in% '20161026'])$log10CD69,breaks = 100))]
+colCD25 <- viridis(100)[as.numeric(cut(pData(sce[,sce$Sort.date %in% '20161026'])$log10CD25,breaks = 100))]
+colCD62L <- viridis(100)[as.numeric(cut(pData(sce[,sce$Sort.date %in% '20161026'])$log10CD62L,breaks = 100))]
+colCD44 <- viridis(100)[as.numeric(cut(pData(sce[,sce$Sort.date %in% '20161026'])$log10CD44,breaks = 100))]
+
+plotPCs(pcs$x[sce$Sort.date %in% '20161026',], cols=colCD69)
+plotPCs(pcs$x[sce$Sort.date %in% '20161026',], cols=colCD25)
+plotPCs(pcs$x[sce$Sort.date %in% '20161026',], cols=colCD62L)
+plotPCs(pcs$x[sce$Sort.date %in% '20161026',], cols=colCD44)
+
+
+```
+
+Let's now look at diffusion pseudotime. We learned from the time-course data that there is a TCR-independent burst of TF activity at 1 hour, so we'll exclude that time-point.
+
+```{r}
+library(destiny)
+
+## first get rid of spike-ins
+sce <- sce[!isSpike(sce),]
+sceAT <- sce[,sce$Sorted.Cell.Type %in% c('N4 6h', 'T4 6h', 'G4 6h', 'NP68 6h', 'unstimulated', 'N4 3h')]
+resAT <- quick_dpt(sceAT, conditions=c('N4 6h', 'T4 6h', 'G4 6h', 'NP68 6h', 'N4 3h', 'unstimulated'), col=c('red', 'green3', 'blue', 'grey40', 'orange', 'grey'), base_condition='unstimulated', stim_condition='N4 6h', trajectory_name='transcriptomic activation status')
+
+resAT[[1]]
+
+resAT[[2]]
+
+pdf('DPT_combrunAT_spikenorm_filt05_AT.pdf', height=2.5, width=4)
+resAT[[1]]
+dev.off()
+
+pdf('DPT_combrunAT_spikenorm_filt05_AT_distribution.pdf', height=2.5, width=4)
+resAT[[2]]
+dev.off()
+
+```
+
+It looks like most cells are following the same trajectory regardless of stimulus.  Let's formally test for this by controlling for activation status while performing a differential expression analysis by stimulus. To do this robustly, we should have an independent marker of activation (not progression along the pseudotime trajectory because this would be overift). Both CD69 and CD25 would be robust markers of classical cellular activation and could serve as a surrogate for activation status when we do differential expression analysis accounting for activation. Let's look at which protein expression best agrees with transcriptomic activation status as defined by pseudotime progression.
+
+```{r}
+
+plot_DPTvprotein <- function(sceset, sort_date, DPTres, protein, trajectory_name='pseudotime'){
+  coln <- paste0('log10', protein)
+  cort <- cor.test(pData(sceset)[sceset$Sort.date %in% sort_date, coln], 
+       DPTres$pt[sceset$Sort.date %in% sort_date,'DPT'])
+  plot(pData(sceset)[sceset$Sort.date %in% sort_date, coln], 
+       DPTres$pt[sceset$Sort.date %in% sort_date,'DPT'], 
+       pch=20, 
+       xlab=bquote('log'[10] ~ .(protein) ~ 'expression'), 
+       ylab=trajectory_name, 
+       cex=0.8, las=1)
+  text(x=max(pData(sceset)[sceset$Sort.date %in% sort_date, coln])-0.25,
+       y=min(DPTres$pt[sceset$Sort.date %in% sort_date,'DPT'])+0.05, 
+       labels=bquote(italic('r ') ~ .(round(cort$estimate, 2))))
+}
+
+par(mfrow=c(2,2), bty='l')
+plot_DPTvprotein(sceAT, '20161026', resAT, 'CD69', trajectory_name='transcriptional activation status')
+plot_DPTvprotein(sceAT, '20160727', resAT, 'CD69', trajectory_name='transcriptional activation status')
+plot_DPTvprotein(sceAT, '20161026', resAT, 'CD25', trajectory_name='transcriptional activation status')
+plot_DPTvprotein(sceAT, '20160727', resAT, 'CD25', trajectory_name='transcriptional activation status')
+
+pdf('DPT_combrunAT_spikenorm_filt05_DPTvCD25_2.pdf', height=4.5, width=4)
+par(mgp=c(2.5,0.5,0))
+plot_DPTvprotein(sceAT, '20161026', resAT, 'CD25', trajectory_name='transcriptional activation status')
+dev.off()
+
+pdf('DPT_combrunAT_spikenorm_filt05_DPTvCD25_1.pdf', height=4.5, width=4)
+par(mgp=c(2.5,0.5,0))
+plot_DPTvprotein(sceAT, '20160727', resAT, 'CD25', trajectory_name='transcriptional activation status')
+dev.off()
+
+pdf('DPT_combrunAT_spikenorm_filt05_DPTvCD69_2.pdf', height=4.5, width=4)
+par(mgp=c(2.5,0.5,0))
+plot_DPTvprotein(sceAT, '20161026', resAT, 'CD69', trajectory_name='transcriptional activation status')
+dev.off()
+
+pdf('DPT_combrunAT_spikenorm_filt05_DPTvCD69_1.pdf', height=4.5, width=4)
+par(mgp=c(2.5,0.5,0))
+plot_DPTvprotein(sceAT, '20160727', resAT, 'CD69', trajectory_name='transcriptional activation status')
+dev.off()
+
+```
+
+CD69 is very well associated with pseudotime and is generally accepted as a marker of activation. Its only draw back is that it doesn't have great overlap between G4 and N4.  To avoid assuming linearity, we'll use a spline fit to protein expression - hopefully this will help us avoid spurious results, when controlling for CD69 expression in DE analysis between peptides. We'll also include a batch interaction term with the date of CD69 protein expression measurements because these FACS values are on a relative scale and are not directly comparable between experiments.
+
+```{r}
+AT_mat <- data.frame(Cond=pData(sceAT)$Sorted.Cell.Type, Batch=pData(sceAT)$batch)
+AT_mat$Cond <- unlist(lapply(strsplit(as.character(AT_mat$Cond), split=' '), function(x){x[1]}))
+AT_mat$Cond <- factor(AT_mat$Cond, levels=c('N4', 'T4', 'G4', 'NP68', 'unstimulated'))
+AT_mat$CD69 <- pData(sceAT)$log10CD69
+AT_mat$Date <- factor(sceAT$Sort.date)
+
+library(splines)
+CD69sp2 <- ns(AT_mat$CD69[sceAT$Sort.date %in% '20161026'], df=4)
+rownames(CD69sp2) <- rownames(pData(sceAT))[sceAT$Sort.date %in% '20161026']
+CD69sp1 <- ns(AT_mat$CD69[sceAT$Sort.date %in% '20160727'], df=4)
+rownames(CD69sp1) <- rownames(pData(sceAT))[sceAT$Sort.date %in% '20160727']
+CD69spdf <- rbind(CD69sp2, CD69sp1)
+CD69spdf <- CD69spdf[rownames(pData(sceAT)),]
+
+mod <- model.matrix(~1+AT_mat$Batch + AT_mat$Date:CD69spdf + AT_mat$Cond)
+
+library(edgeR)
+z_AT <- convertTo(sceAT, type="edgeR")
+y_s <- estimateDisp(z_AT, design=mod)
+fit <- glmFit(z_AT, design=mod, dispersion=y_s$tagwise.dispersion, prior.count=1)
+resT4 <- glmLRT(fit, coef='AT_mat$CondT4')
+bestT4 <- data.frame(topTags(resT4, n=nrow(z_AT)))
+bestT4$symbol <- as.character(fData(sceAT)[rownames(bestT4),'symbol'])
+bestT4[bestT4$FDR < 0.05,]
+write.table(bestT4, file='CombrunAT_spikenorm_filt05_T4vN4_controlCD69sp2.txt', sep='\t', quote=F)
+
+resG4 <- glmLRT(fit, coef='AT_mat$CondG4')
+bestG4 <- data.frame(topTags(resG4, n=nrow(z_AT)))
+bestG4$symbol <- as.character(fData(sceAT)[rownames(bestG4),'symbol'])
+bestG4[bestG4$FDR < 0.05,]
+write.table(bestG4, file='CombrunAT_spikenorm_filt05_G4vN4_controlCD69sp2.txt', sep='\t', quote=F)
+```
+
+Let's make some volcano plots to see these results.
+
+```{r}
+## volcano plots of G4 v N4 and T4 v N4 with CD69 covariate 
+
+par(bty='l', mgp=c(2.5,1,0))
+plot(bestG4$logFC, -log10(bestG4$PValue), pch=20, cex=0.7, 
+     xlab=expression(paste("log"[2], "(fold-change)")),
+     ylab=expression(paste("-log"[10], "(p value)")),
+     cex.lab=1.6, cex.axis=1.6)
+points(bestG4$logFC[which(bestG4$FDR < 0.05)], -log10(bestG4$PValue[which(bestG4$FDR < 0.05)]), 
+     pch=20, cex=0.6, col='magenta') 
+
+par(bty='l', mgp=c(2.5,1,0))
+plot(bestT4$logFC, -log10(bestT4$PValue), pch=20, cex=0.7, 
+     xlab=expression(paste("log"[2], "(fold-change)")),
+     ylab=expression(paste("-log"[10], "(p value)")), 
+     cex.lab=1.6, cex.axis=1.6)
+points(bestT4$logFC[which(bestT4$FDR < 0.05)], -log10(bestT4$PValue[which(bestT4$FDR < 0.05)]), 
+       pch=20, cex=0.6, col='magenta') 
+
+pdf('DE_combrunAT_spikenorm_filt05_G4vN4_controlCD69sp2_volcano.pdf', height=5, width=5)
+par(bty='l', mgp=c(2.5,1,0))
+plot(bestG4$logFC, -log10(bestG4$PValue), pch=20, cex=0.7, 
+     xlab=expression(paste("log"[2], "(fold-change)")),
+     ylab=expression(paste("-log"[10], "(p value)")),
+     cex.lab=1.6, cex.axis=1.6)
+points(bestG4$logFC[which(bestG4$FDR < 0.05)], -log10(bestG4$PValue[which(bestG4$FDR < 0.05)]), 
+     pch=20, cex=0.6, col='magenta') 
+dev.off()
+
+pdf('DE_combrunAT_spikenorm_filt05_T4vN4_controlCD69sp2_volcano.pdf', height=5, width=5)
+par(bty='l', mgp=c(2.5,1,0))
+plot(bestT4$logFC, -log10(bestT4$PValue), pch=20, cex=0.7, 
+     xlab=expression(paste("log"[2], "(fold-change)")),
+     ylab=expression(paste("-log"[10], "(p value)")), 
+     cex.lab=1.6, cex.axis=1.6)
+points(bestT4$logFC[which(bestT4$FDR < 0.05)], -log10(bestT4$PValue[which(bestT4$FDR < 0.05)]), 
+       pch=20, cex=0.6, col='magenta') 
+dev.off()
+```
+
+How similar are the datasets?  Let's intersect the significant lists.  This certainly suffers from a thresholding problem, but we aren't making any claims about specificity.
+
+```{r}
+shared <- rownames(bestT4[bestT4$FDR<0.05,])[rownames(bestT4[bestT4$FDR<0.05,]) 
+                                             %in% rownames(bestG4[bestG4$FDR<0.05,])]
+write.table(bestT4[shared,'symbol'], 'CombrunAT_spikenorm_filt05_bothvN4_control2CD69sp2_significant.txt', sep='\t', quote=F)
+
+bestT4[shared,]
+
+par(bty='l', mgp=c(2,0.5,0))
+plot(bestT4$logFC, bestG4[rownames(bestT4),'logFC'], pch=20,
+     xlab=expression(paste("log"[2], " fold change T4vN4")), 
+     ylab=expression(paste("log"[2], " fold change G4vN4")), 
+     cex=0.6, col='lightgrey', cex.axis=0.8, cex.lab=0.8, las=1)
+points(bestT4[bestT4$FDR<0.05,'logFC'], bestG4[rownames(bestT4[bestT4$FDR<0.05,]),'logFC'], 
+       col='green3', pch=20)
+points(bestT4[rownames(bestG4[bestG4$FDR<0.05,]),'logFC'], bestG4[bestG4$FDR<0.05,'logFC'], 
+       col='blue', pch=20)
+points(bestT4[shared,'logFC'], bestG4[shared,'logFC'], col='magenta', pch=20)
+text(bestT4[shared[c(1,2,3,7,8)],'logFC'], bestG4[shared[c(1,2,3,7,8)],'logFC'], 
+     labels=bestT4[shared[c(1,2,3,7,8)],'symbol'], cex= 0.7, adj=c(-0.1,0.5), col='black', font=2)
+text(bestT4[shared[c(5)],'logFC'], bestG4[shared[c(5)],'logFC'], 
+     labels=bestT4[shared[c(5)],'symbol'], cex= 0.7, adj=c(0,1.2), col='black', font=2)
+text(bestT4[shared[c(4)],'logFC'], bestG4[shared[c(4)],'logFC'], 
+     labels=bestT4[shared[c(4)],'symbol'], cex= 0.7, adj=c(1,-0.2), col='black', font=2)
+text(bestT4[shared[c(6)],'logFC'], bestG4[shared[c(6)],'logFC'], 
+     labels=bestT4[shared[c(6)],'symbol'], cex= 0.7, adj=c(1,1.2), col='black', font=2)
+legend('bottomright', legend=c('T4 v N4', 'G4 v N4', 'both'), 
+       fill=c('green3', 'blue', 'magenta'), bty='n', cex=0.8)
+
+pdf('DE_combrunAT_spikenorm_filt05_G4T4vN4_controlCD69sp2_logFCs.pdf', height=4.5, width=4.2)
+par(bty='l', mgp=c(2,0.5,0), mar=c(5.1, 4.1, 2.1, 2.1))
+plot(bestT4$logFC, bestG4[rownames(bestT4),'logFC'], pch=20,
+     xlab=expression(paste("log"[2], " fold change T4vN4")), 
+     ylab=expression(paste("log"[2], " fold change G4vN4")), 
+     cex=0.6, col='lightgrey', cex.axis=0.8, cex.lab=0.8, las=1, xlim=c(-3, 4))
+points(bestT4[bestT4$FDR<0.05,'logFC'], bestG4[rownames(bestT4[bestT4$FDR<0.05,]),'logFC'], 
+       col='green3', pch=20)
+points(bestT4[rownames(bestG4[bestG4$FDR<0.05,]),'logFC'], bestG4[bestG4$FDR<0.05,'logFC'], 
+       col='blue', pch=20)
+points(bestT4[shared,'logFC'], bestG4[shared,'logFC'], col='magenta', pch=20)
+text(bestT4[shared[c(1,2,3,7,8)],'logFC'], bestG4[shared[c(1,2,3,7,8)],'logFC'], 
+     labels=bestT4[shared[c(1,2,3,7,8)],'symbol'], cex= 0.7, adj=c(-0.1,0.5), col='black', font=2)
+text(bestT4[shared[c(5)],'logFC'], bestG4[shared[c(5)],'logFC'], 
+     labels=bestT4[shared[c(5)],'symbol'], cex= 0.7, adj=c(0,1.2), col='black', font=2)
+text(bestT4[shared[c(4)],'logFC'], bestG4[shared[c(4)],'logFC'], 
+     labels=bestT4[shared[c(4)],'symbol'], cex= 0.7, adj=c(1,-0.2), col='black', font=2)
+text(bestT4[shared[c(6)],'logFC'], bestG4[shared[c(6)],'logFC'], 
+     labels=bestT4[shared[c(6)],'symbol'], cex= 0.7, adj=c(1,1.2), col='black', font=2)
+legend('bottomright', legend=c('T4 v N4', 'G4 v N4', 'both'), 
+       fill=c('green3', 'blue', 'magenta'), bty='n', cex=0.8)
+dev.off()
+
+
+
+```
+
+Approximately how many genes are differentially expressed between the peptide conditions? In other words, what is pi-0, or the estimate of how often the null hypothesis is true?
+
+```{r}
+library(qvalue)
+p0T4 <- pi0est(p=bestT4$PValue, pi0.method = 'bootstrap')
+p0T4
+p0G4 <- pi0est(p=bestG4$PValue, pi0.method = 'bootstrap')
+p0G4
+```
+
+So it looks like, particularly for T4, there is very little differential regulation. There may be some more with G4, but this is also a bit harder because G4 overlap N4 less with respect to CD69 expression.
+
+Now, let's try enrichment testing.
+
+```{r}
+library(limma)
+library(org.Mm.eg.db)
+xx <- as.list(org.Mm.egENSEMBL2EG)
+## use UCSC table downloaded 20170503 Ensembl gene annotation of mm10 because org.Mm had a lot of messy things with multi-mapping
+anno <- read.table('~/Documents/Post_doc/Sync/Experiments/scRNA-seq/annotation_resources/mm10_ENSG/mm10_ensg_annotation_ucsc_20170503', header=T, comment.char = '', sep='\t')
+len_vec <- abs(anno$txStart-anno$txEnd)
+len_df <- data.frame(name=anno$name, length=len_vec, gene=anno$name2)
+## these are the transcript lengths but we need to get the gene lengths because we've dealt with genes in our analysis
+## we'll take the maximum transcript length for genes for which there are multiple transcripts
+lens <- split(len_df, len_df$gene)
+len_vec2 <- lapply(lens, function(x) {max(x$length)})
+
+GO1 <- goana(resT4, species="Mm", geneid=xx[rownames(resT4)], FDR=0.05, trend=unlist(len_vec2)[rownames(resT4)])
+GO1tab <- topGO(GO1, ont="BP", number=Inf)
+head(GO1tab)
+
+GO2 <- goana(resG4, species="Mm", geneid=xx[rownames(resG4)], FDR=0.05, trend=unlist(len_vec2)[rownames(resG4)])
+GO2tab <- topGO(GO2, ont="BP", number=Inf)
+head(GO2tab)
+
+
+GOs <- list(T4=GO1tab, G4=GO2tab)
+GOs <- lapply(GOs, function(x) {
+  adjp <- 0.05/nrow(x)
+  return(x[(x$P.Up < adjp) | (x$P.Down < adjp),])
+})
+
+for(i in 1:length(GOs)){
+  enrich <- apply(GOs[[i]], 1, function(x){
+   if(as.numeric(x[6]) < as.numeric(x[7])){
+      enrich <- -log10(as.numeric(x[6]))
+    } else {
+      enrich <- log10(as.numeric(x[7]))
+    }
+    return(enrich)   
+    })
+  GOs[[i]]$enrich <- enrich
+}
+
+
+## and plot out the top 20 for each
+
+GOs20 <- lapply(GOs, function(x) {
+  if(nrow(x)<20){
+    return(x[order(x$enrich),])
+  } else {
+  top20 <- abs(x$enrich)[order(abs(x$enrich), decreasing=TRUE)][20]
+  temp <- x[which(abs(x$enrich) >= top20),]
+  return(temp[order(abs(temp$enrich)),])
+  }
+})
+
+par(mar=c(5.1,22.1,2.1,2.1), mgp=c(2,1,0))
+barplot(GOs20[[1]]$enrich, horiz=TRUE, beside=TRUE, main='T4 v N4 enrichment',
+        col=c('green3'), las=1, xlab=expression(paste("-log"[10], " adjusted p-value x DE direction")),
+        names.arg=GOs20[[1]]$Term, cex.names=0.8)
+
+pdf('DE_combrunAT_spikenorm_filt05_T4vN4_GO20_controlCD69sp2.pdf', height=1.7, width=8)
+par(mar=c(4.1,22.1,2.1,2.1), mgp=c(2,1,0))
+barplot(GOs20[[1]]$enrich, horiz=TRUE, beside=TRUE, main='',
+        col=c('green3'), las=1, xlab='',
+        names.arg=GOs20[[1]]$Term, cex.names=0.8)
+dev.off()
+
+par(mar=c(5.1,22.1,2.1,2.1), mgp=c(2,1,0))
+barplot(GOs20[[2]]$enrich, horiz=TRUE, beside=TRUE, main='G4 v N4 enrichment',
+        col=c('blue'), las=1, xlab=expression(paste("-log"[10], " adjusted p-value x DE direction")),
+        names.arg=GOs20[[2]]$Term, cex.names=0.8)
+
+pdf('DE_combrunAT_spikenorm_filt10_G4vN4_GO20_controlCD69sp2.pdf', height=2.45, width=8)
+par(mar=c(4.1,22.1,2.1,2.1), mgp=c(2,1,0))
+barplot(GOs20[[2]]$enrich, horiz=TRUE, beside=TRUE, main='',
+        col=c('blue'), las=1, xlab='',
+        names.arg=GOs20[[2]]$Term, cex.names=0.8)
+dev.off()
+
+```
+
+This has revealed some interesting genes.  Let's make some plots of shared genes, antigen presenting machinery (T4 enriched upregulated) and defense response (G4 enriched downregulated).
+
+```{r}
+
+plot_resid <- function(sceset, spline_mat, gene_symbol, 
+                       conditions=c('N4 3h', 'N4 6h', 'T4 6h', 'G4 6h'), 
+                       mylevels=c('N4 3h', 'N4 6h', 'T4 6h', 'G4 6h'),
+                       mylevels2=c('N4', 'T4', 'G4'),
+                       cols=c('red', 'green3', 'blue')){
+  genen <- rownames(fData(sceset))[fData(sceset)$symbol %in% gene_symbol]
+  cellinds <- which(pData(sceset)$Sorted.Cell.Type %in% conditions)
+  df <- data.frame(Y=exprs(sceset)[genen,cellinds],
+                   Cond=factor(pData(sceset[,cellinds])$Sorted.Cell.Type, levels=mylevels),
+                   Batch=factor(pData(sceset[,cellinds])$batch),
+                   Date=factor(pData(sceset[,cellinds])$Sort.date))
+  df$Cond2 <- unlist(lapply(strsplit(as.character(df$Cond), ' '), function(x){x[1]}))
+  spline_mat <- spline_mat[cellinds,]
+  resid <- lm(df$Y ~ df$Batch + df$Date:spline_mat)$residuals
+  facs <- split(resid, factor(df$Cond2, levels=mylevels2))
+  stripchart(facs, method='jitter', vertical=TRUE, pch=20, col=cols, las=1, 
+             xlim=c(0.5,length(mylevels2)+0.5), 
+             ylab=bquote('residual log'[2] ~ .(gene_symbol) ~ 'expression'))
+  boxplot(facs, outline=FALSE, add=T, col=rgb(0,0,0, alpha=0), axes=F)
+}
+
+pdf('DE_CombrunAT_spikenorm_filt05_CD69sp2DEsharedantiviral_genes.pdf', height=3, width=9)
+par(mfrow=c(1,4), mgp=c(2,0.7,0), mar=c(3,3.5,1,0.2), bty='l', cex.lab=1.4, cex.axis=1.3)
+plot_resid(sceAT, spline_mat=CD69spdf, 'Psmb8')
+plot_resid(sceAT, spline_mat=CD69spdf, 'Tapbp')
+plot_resid(sceAT, spline_mat=CD69spdf, 'Samhd1')
+plot_resid(sceAT, spline_mat=CD69spdf, 'Ifi47')
+dev.off()
+
+pdf('DE_CombrunAT_spikenorm_filt05_CD69sp2DET4classI_genes.pdf', height=3, width=9)
+par(mfrow=c(1,4), mgp=c(2,0.7,0), mar=c(3,3.5,1,0.2), bty='l', cex.lab=1.4, cex.axis=1.3)
+plot_resid(sceAT, spline_mat=CD69spdf, 'Tapbp')
+plot_resid(sceAT, spline_mat=CD69spdf, 'Psmb8')
+plot_resid(sceAT, spline_mat=CD69spdf, 'B2m')
+plot_resid(sceAT, spline_mat=CD69spdf, 'H2-T23')
+dev.off()
+
+pdf('DE_CombrunAT_spikenorm_filt05_CD69sp2DEG4chemokine_genes.pdf', height=3, width=9)
+par(mfrow=c(1,4), mgp=c(2,0.7,0), mar=c(3,3.5,1,0.2), bty='l', cex.lab=1.4, cex.axis=1.3)
+plot_resid(sceAT, spline_mat=CD69spdf, 'Xcl1')
+plot_resid(sceAT, spline_mat=CD69spdf, 'Ccl3')
+plot_resid(sceAT, spline_mat=CD69spdf, 'Ccl4')
+plot_resid(sceAT, spline_mat=CD69spdf, 'Ifng')
+dev.off()
+
+pdf('DE_CombrunAT_spikenorm_filt05_CD69sp2_GZMB.pdf', height=4, width=2.7)
+par(mgp=c(2,0.7,0), mar=c(3,3.5,1,0.2), bty='l', cex.lab=1.4, cex.axis=1.3, cex=0.9)
+plot_resid(sceAT, spline_mat=CD69spdf, 'Gzmb')
+dev.off()
+
+```
+
+And finally we want to check how these genes act in general. Are they upregulated with activation? Downregulated? Unchanged?
+
+```{r}
+expr_box_plot <- function(gene_symbol, sceset, 
+                     split_facs=c('unstimulated', 'N4 3h', 'N4 6h', 'T4 6h', 'G4 6h', 'NP68 6h'), 
+                     name_facs=c('unstimulated', 'N4 3h', 'N4 6h', 'T4 6h', 'G4 6h', 'NP68 6h'), 
+                     cols=c('grey', 'orange', 'red', 'green3', 'blue', 'grey40')){
+  genen <- rownames(fData(sceset))[fData(sceset)$symbol %in% gene_symbol]
+  temp <- split(exprs(sceset)[genen,], 
+                factor(as.character(pData(sceset)$Sorted.Cell.Type), levels=split_facs))
+  names(temp) <- name_facs
+  stripchart(temp, method='jitter', vertical=TRUE, pch=20, col=cols, las=2, 
+             xlim=c(0.5,length(temp)+0.5), 
+             ylab=bquote('log'[2] ~ .(gene_symbol) ~ 'expression'))
+  boxplot(temp, outline=FALSE, add=T, col=rgb(0,0,0, alpha=0), axes=F)
+  
+}
+
+par(mfrow=c(1,4), mgp=c(2,0.5,0), mar=c(6,3.5,1,0.2), bty='l', cex.lab=1.5, cex.axis=1)
+expr_box_plot('Tapbp', sceset=sce)
+expr_box_plot('Psmb8', sceset=sce)
+expr_box_plot('B2m', sceset=sce)
+expr_box_plot('H2-T23', sceset=sce)
+
+par(mfrow=c(1,4), mgp=c(2,0.5,0), mar=c(3,3.5,1,0.2), bty='l', cex.lab=1.5, cex.axis=1)
+expr_box_plot('Xcl1', sceset=sce)
+expr_box_plot('Ccl3', sceset=sce)
+expr_box_plot('Ccl4', sceset=sce)
+expr_box_plot('Ifng', sceset=sce)
+
+pdf('DE_CombrunAT_spikenorm_filt05_CD69sp2DET4classI_genes_expr.pdf', height=3, width=10)
+par(mfrow=c(1,4), mgp=c(1.2,0.5,0), mar=c(6,3.5,1,0.2), bty='l', cex.lab=1.2, cex.axis=1)
+expr_box_plot('Tapbp', sceset=sce)
+expr_box_plot('Psmb8', sceset=sce)
+expr_box_plot('B2m', sceset=sce)
+expr_box_plot('H2-T23', sceset=sce)
+dev.off()
+
+pdf('DE_CombrunAT_spikenorm_filt05_CD69sp2DEG4chemokine_genes_expr.pdf', height=3, width=10)
+par(mfrow=c(1,4), mgp=c(1.2,0.5,0), mar=c(6,3.5,1,0.2), bty='l', cex.lab=1.2, cex.axis=1)
+expr_box_plot('Xcl1', sceset=sce)
+expr_box_plot('Ccl3', sceset=sce)
+expr_box_plot('Ccl4', sceset=sce)
+expr_box_plot('Ifng', sceset=sce)
+dev.off()
+
+pdf('DE_CombrunAT_spikenorm_filt05_CD69sp2_GZMB_expr.pdf', height=4, width=3.5)
+par(mgp=c(1.2,0.5,0), mar=c(6,3.5,1,0.2), bty='l', cex.lab=1.2, cex.axis=1, cex=0.9)
+expr_box_plot('Gzmb', sceset=sce)
+dev.off()
+
+
+```
+
+So class I presentation genes are upregulated even beyond what is seen in N4 condition, while chemokines and cytokines just fail to turn on in G4 despite some level of activation. But in general, very little is differentially expressed given activation status.
+
+```{r}
+sessionInfo()
+```

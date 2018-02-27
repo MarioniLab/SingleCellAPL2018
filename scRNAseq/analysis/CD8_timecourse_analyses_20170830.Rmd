@@ -1,0 +1,469 @@
+---
+title: "CD8_timecourse_analyses"
+author: "Arianne Richard"
+date: "4/28/2017"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+knitr::opts_knit$set(root.dir = '~/Documents/Post_doc/Sync/Experiments/scRNA-seq/naive APLs combined analyses/RMD_files/')
+```
+
+This script runs through analyses of the timecourse data from a single-cell sequencing experiment looking at early activation of CD8+ T cells - this data was collected from an experiment run on 261016.
+
+First we'll load the data and filter uninformative genes.
+
+```{r}
+library(scater)
+library(scran)
+library(RColorBrewer)
+library(gplots)
+source('dpt_plots.R')
+source('dpt.R')
+library(pheatmap)
+
+sce <- readRDS('sce_run2.rds')
+
+## filter for expression in at least 5% of cells in entire dataset and mean count at least 1
+drop_filt <- apply(counts(sce), 1, function(y) {length(which(y>0)) >= ncol(sce)*0.05})
+sce <- sce[drop_filt,]
+mean_filt <- apply(counts(sce), 1, function(y) {mean(y) >=1})
+sce <- sce[mean_filt,]
+
+## normalise based on spike-in factors
+sce <- computeSpikeFactors(sce, general.use=TRUE)
+sce <- normalise(sce, exprs_values='counts', return_norm_as_exprs=TRUE, logExprsOffset=1)
+
+## fix condition factors to remove "null"
+sce$Sorted.Cell.Type <- factor(as.character(sce$Sorted.Cell.Type))
+```
+
+Check whether there is a batch effect between plates of cells. We will assume these effects are entirely technical in processing the cells and therefore keep the spike-in genes in the dataset.
+
+```{r}
+plot_splitsce <- function(sce){
+  splitsce <- vector('list', 7)
+  names(splitsce) <- c('unstimulated', 'N4 1h', 'N4 3h', 'N4 6h', 'T4 6h', 'G4 6h', 'NP68 6h')
+  for(i in 1:length(splitsce)){
+    splitsce[[i]] <- sce[,sce$Sorted.Cell.Type %in% names(splitsce)[i]]
+  }
+  splitpcs <- lapply(splitsce, function(x) {prcomp(t(as.matrix(exprs(x))))})
+  par(mfrow=c(2,4))
+  for(i in 1:length(splitpcs)){
+    sce2 <- splitsce[[i]]
+    cols2 <- as.character(pData(sce2)$Original.sort.plate)
+    cols2[cols2 %in% 'Plate 1'] <- 'blue'
+    cols2[cols2 %in% 'Plate 2'] <- 'green3'
+    cols2[cols2 %in% 'Plate 3'] <- 'purple'
+    cols2[cols2 %in% 'Plate 4'] <- 'red'
+    par(mgp=c(2,1,0), bty='l')
+    plot(splitpcs[[i]]$x[,1], splitpcs[[i]]$x[,2], xlab='PC1', ylab='PC2', 
+         main=names(splitpcs)[i], col=cols2, pch=16, cex.lab=1.2)
+  }
+}
+
+plot_splitsce(sce)
+
+```
+
+It is very hard to say whether there is a batch effect. However, we will be cautious and remove any residual effect.  Then we will narrow ourselves to the appropriate time-course samples.
+
+```{r}
+library(sva)
+mod <- model.matrix(~factor(as.character(sce$Sorted.Cell.Type)))
+combat_sce <- ComBat(dat=exprs(sce), batch=pData(sce)$Original.sort.plate,
+                     mod=mod, par.prior=TRUE, prior.plots=FALSE)
+exprs(sce) <- combat_sce
+sce <- sce[, sce$Sorted.Cell.Type %in% c('unstimulated', 'N4 1h', 'N4 3h', 'N4 6h')]
+
+cond <- as.character(sce$Sorted.Cell.Type)
+cond[cond %in% 'unstimulated'] <- '0h'
+cond[cond %in% 'N4 1h'] <- '1h'
+cond[cond %in% 'N4 3h'] <- '3h'
+cond[cond %in% 'N4 6h'] <- '6h'
+sce$Sorted.Cell.Type <- cond
+
+pcs <- prcomp(t(as.matrix(exprs(sce))), scale=FALSE)
+cols2 <- as.character(pData(sce)$Original.sort.plate)
+cols2[cols2 %in% 'Plate 1'] <- 'blue'
+cols2[cols2 %in% 'Plate 2'] <- 'green3'
+cols2[cols2 %in% 'Plate 3'] <- 'purple'
+cols2[cols2 %in% 'Plate 4'] <- 'red'
+par(mgp=c(2,1,0), bty='l')
+plot(pcs$x[,1], pcs$x[,2], xlab='PC1', ylab='PC2', col=cols2, pch=16, cex.lab=1.2)
+legend('topright', legend=c('Plate 1', 'Plate 2', 'Plate 3', 'Plate 4'), fill=c('blue', 'green3', 'purple', 'red'), bty='n')
+
+```
+
+This looks pretty good now.  So we can move on to the analyses.  First, we'll remove the spike-in genes as these are not longer needed, and we don't want them dictating any ordering of the cells.
+
+```{r}
+sce <- sce[!isSpike(sce),]
+```
+
+Now we can perform principal components analysis without the spikes and look at the effect of time on gene expression.
+
+```{r}
+pcs <- prcomp(t(as.matrix(exprs(sce))), scale=TRUE)
+cols <- as.character(pData(sce)$Sorted.Cell.Type)
+cols[cols %in% '6h'] <- 'red'
+cols[cols %in% '3h'] <- 'orange'
+cols[cols %in% '1h'] <- 'gold'
+cols[cols %in% '0h'] <- 'grey'
+plot(pcs$x[,1], pcs$x[,2], xlab='PC1', ylab='PC2', col=cols, pch=16, cex.lab=1.2)
+legend('topright', legend=c('0h', '1h', '3h', '6h'), fill=c('grey', 'gold', 'orange', 'red'), bty='n')
+
+pdf('PCs_CBT_TC_spikenorm_filt05.pdf', height=5, width=3.5)
+par(mgp=c(2,1,0), bty='l')
+plot(pcs$x[,1], pcs$x[,2], xlab='PC1', ylab='PC2', col=cols, pch=16, cex.lab=1.2, las=1)
+legend('topright', legend=c('0h', '1h', '3h', '6h'), fill=c('grey', 'gold', 'orange', 'red'), bty='n')
+dev.off()
+
+```
+
+Now let's look at protein expression in each condition from the cells we sequenced.
+
+```{r}
+
+box_plot <- function(protein, sceset, split_facs, cols){
+  protname <- paste0('log10', protein)
+  temp <- split(pData(sceset)[,protname], 
+                factor(as.character(pData(sceset)$Sorted.Cell.Type), levels=split_facs))
+  boxplot(temp, vertical=T, pch=16, col=cols, cex=0.5, las=1,
+          ylab=bquote('log'[10] ~ .(protein) ~ 'expression', where=environment()))
+}
+
+proteins <- c('CD62L', 'CD69', 'CD25', 'CD44')
+
+par(mfrow=c(2,2), mgp=c(2,0.5,0), mar=c(3,3.5,0.2,0.2), bty='l')
+for(i in 1:length(proteins)){
+  box_plot(proteins[i], sceset=sce, 
+           split_facs=c('0h', '1h', '3h', '6h'), 
+           cols=c('grey', 'gold', 'orange', 'red'))
+}
+
+pdf('Protein_TC_filt05.pdf', height=5, width=4)
+par(mfrow=c(2,2), mgp=c(2,0.5,0), mar=c(3,3.5,0.2,0.2), bty='l')
+for(i in 1:length(proteins)){
+  box_plot(proteins[i], sceset=sce,
+           split_facs=c('0h', '1h', '3h', '6h'), 
+           cols=c('grey', 'gold', 'orange', 'red'))
+}
+dev.off()
+
+```
+
+
+And we can run diffusion pseudotime analysis.  First we must find the root cell as the most extreme cell that is in the "unstimulated" category.  
+
+```{r}
+library(destiny)
+
+resTC <- quick_dpt(sce, conditions=c('0h', '1h', '3h', '6h'), col=c('grey', 'gold', 'orange', 'red'), base_condition='0h', stim_condition='6h')
+
+resTC[[1]]
+pdf('DPT_CBT_TC_spikenorm_filt05.pdf', height=3, width=3.6)
+resTC[[1]]
+dev.off()
+
+```
+
+How are the cells distributed across pseudotime?  
+
+```{r}
+hist(resTC$pt$DPT, breaks=30, xlab='Pseudotime', col='dodgerblue', main='')
+plot(c(1:nrow(resTC$pt)), resTC$pt$DPT[order(resTC$pt$DPT)], xlab='Ordered Cells', ylab='Pseudotime')
+
+pdf('DPT_CBT_TC_spikenorm_filt05_histogram.pdf', height=5, width=4)
+hist(resTC$pt$DPT, breaks=30, xlab='Pseudotime', col='dodgerblue', main='', las=1)
+dev.off()
+```
+
+There appear to be 3 main clusters.  Let's assign the cells into these clusters.
+
+```{r}
+library(classInt)
+set.seed(100)
+clusts <- findCols(classIntervals(resTC$pt$DPT, 3, style='jenks'))
+plot(c(1:nrow(resTC$pt)), resTC$pt$DPT[order(resTC$pt$DPT)], xlab='Ordered Cells', ylab='Pseudotime',
+     col=c('darkgrey', 'lightslateblue', 'slateblue4')[clusts[order(resTC$pt$DPT)]])
+legend('topleft', legend=c('resting', 'early activation', 'late activation'), fill=c('darkgrey', 'lightslateblue', 'slateblue4'), bty='n')
+
+pdf('DPT_CBT_TC_spikenorm_filt05_cdf.pdf', height=5, width=4)
+plot(c(1:nrow(resTC$pt)), resTC$pt$DPT[order(resTC$pt$DPT)], xlab='Ordered Cells', ylab='Pseudotime',
+     col=c('darkgrey', 'lightslateblue', 'slateblue4')[clusts[order(resTC$pt$DPT)]], las=1)
+legend('topleft', legend=c('resting', 'early activation', 'late activation'), fill=c('darkgrey', 'lightslateblue', 'slateblue4'), bty='n')
+dev.off()
+
+col_cat <- c('resting', 'early activation', 'late activation')[as.numeric(clusts)]
+col_cat <- factor(col_cat, levels=c('resting', 'early activation', 'late activation'))
+
+plot_dpt_ACR_all_colcat(ts=resTC$ts, pt=resTC$pt, branches=c(1L), path_col=c('black'),
+                        col_cat = col_cat, cat_cols=c('darkgrey', 'lightslateblue', 'slateblue4'), 
+                        col_name='Clusters',
+                        x = 1L, y = 2L, w_width = 0.4)
+
+
+pdf('DPT_CBT_TC_spikenorm_filt05_clusters.pdf', height=3, width=4)
+set.seed(100)
+plot_dpt_ACR_all_colcat(ts=resTC$ts, pt=resTC$pt, branches=c(1L), path_col=c('black'),
+                        col_cat = col_cat, cat_cols=c('darkgrey', 'lightslateblue', 'slateblue4'), 
+                        col_name='Clusters',
+                        x = 1L, y = 2L, w_width = 0.4)
+dev.off()
+
+
+
+
+
+```
+
+Now we can perform differential expression analysis between them.  Of note, the association analysis is over-fit because pseudotime was defined using gene expression and the clusters were then defined along pseudotime.  However, we will perform the analysis just to see what is enriched in each cluster, without taking significance values too seriously.
+
+Let's first look at what goes up in the first activation cluster (early activation, cluster 2) compared to unstimulated (cluster 1).
+
+```{r}
+library(edgeR)
+df <- data.frame(batch=as.character(sce$Original.sort.plate), 
+                 clust=as.character(clusts))
+mod <- model.matrix(~0+clust+batch, data=df)
+z_s <- convertTo(sce, type="edgeR")
+y_s <- estimateDisp(z_s, design=mod)
+fit <- glmFit(z_s, design=mod, dispersion=y_s$tagwise.dispersion, prior.count=1)
+res1 <- glmLRT(fit, contrast=c(-1,1,0,0,0,0))
+bestB1 <- data.frame(topTags(res1, n=nrow(z_s)))
+bestB1$symbol <- as.character(fData(sce)[rownames(bestB1),'symbol'])
+head(bestB1)
+write.table(bestB1, 'DPT_CBT_TC_spikenorm_filt05_earlyactivation_cluster.txt', sep='\t', quote=F)
+```
+
+These genes are  differentially expressed in the first activated cluster (cluster 2). Are there any genes that are unique to this cluster?  Let's compare it to both the unstimulated (cluster 1) AND the most activated (cluster 3).
+
+```{r}
+res1unique <- glmLRT(fit, contrast=c(-0.5,1,-0.5,0,0,0))
+bestB1unique <- data.frame(topTags(res1unique, n=nrow(z_s)))
+bestB1unique$symbol <- as.character(fData(sce)[rownames(bestB1unique),'symbol'])
+head(bestB1unique, 20)
+
+write.table(bestB1unique, 'DPT_CBT_TC_spikenorm_filt05_earlyactivation_cluster_vrestingandlate.txt', sep='\t', quote=F)
+
+```
+
+This seems to have a lot of transcription factors among the upregulated genes.  Let's directly test for enrichment of transcription factors among the top upregulated genes.  This is just a simple hypergeometric test.  
+
+```{r}
+## read in a list of mouse transcriptional regulatory genes from TF list in http://compbio.massey.ac.nz/apps/tcof/home/ downloaded 29 November 2016
+TFs <- read.table('~/Documents/Post_doc/Sync/Experiments/scRNA-seq/annotation_resources/BrowseTFTcoF-DB_Mouse_20161129.txt', sep='\t', header=T)
+
+enrich_plots <- function(sce, pt, clusts, bestdf, TFs, namepdf="null", genes){
+  N41hHM <- sce[rownames(bestdf[(bestdf$logFC>0) & (bestdf$FDR < 0.05),]),]
+  fData(N41hHM)$TF <- fData(N41hHM)$symbol %in% TFs$Symbol
+ 
+  fData(sce)$TF <- fData(sce)$symbol %in% TFs$Symbol
+  
+  ### pie chart of TFs versus not TFs
+  pval <- phyper(q=length(which(fData(N41hHM)$TF))-1, 
+                m=length(which(fData(sce)$TF)),
+                n=length(which(!fData(sce)$TF)), 
+                k=nrow(N41hHM), lower.tail=FALSE)
+  
+  if(namepdf != 'null'){
+    pdf(paste0(namepdf, '_TFs_piecharts.pdf'), height=3, width=6)
+    }
+  par(mfrow=c(2,1), mgp=c(2,0.5,0), mar=c(1,4,2,2))
+  slices <- c(length(which(fData(N41hHM)$TF)), 
+              nrow(N41hHM)-length(which(fData(N41hHM)$TF)))
+  lbls <- c("TF", "not TF")
+  pct <- round(slices/sum(slices)*100)
+  lbls <- paste(lbls, pct) # add percents to labels 
+  lbls <- paste(lbls,"%",sep="") # ad % to labels 
+  pie(slices,labels = lbls, col=c('dodgerblue', 'grey'), main='uniquely up in early activation')
+  
+  slices <- c(length(which(fData(sce)$TF)), 
+              nrow(sce)-length(which(fData(sce)$TF)))
+  lbls <- c("TF", "not TF")
+  pct <- round(slices/sum(slices)*100)
+  lbls <- paste(lbls, pct) # add percents to labels 
+  lbls <- paste(lbls,"%",sep="") # ad % to labels 
+  pie(slices,labels = lbls, col=c('dodgerblue', 'grey'), main='in tested gene list')
+  if(namepdf != 'null'){
+      dev.off()
+    }
+  
+  N41hHM <- N41hHM[1:20,]
+  require(gplots)
+  require(pheatmap)
+
+  if(namepdf != 'null'){
+    pdf(paste0(namepdf, 'heatmap.pdf'), width=5, height=4)
+  }
+  cols <- as.character(pData(N41hHM)$Sorted.Cell.Type)
+  cols[cols %in% '0h'] <- 'N4_0h'
+  cols[cols %in% '1h'] <- 'N4_1h'
+  cols[cols %in% '3h'] <- 'N4_3h'
+  cols[cols %in% '6h'] <- 'N4_6h'
+  cols <- factor(cols, levels=c('N4_0h', 'N4_1h', 'N4_3h', 'N4_6h'))
+  cols2 <- as.character(col_cat)
+  cols2 <- gsub(' ', '_', cols2)
+  cols2 <- factor(cols2, levels=c('resting', 'early_activation', 'late_activation'))
+  cols_df <- data.frame(condition=cols, cluster=cols2)
+  rownames(cols_df) <- colnames(N41hHM)
+  transcription_reg <- rep('not_TF', times=nrow(N41hHM))
+  transcription_reg[which(fData(N41hHM)[,'TF'])] <- 'TF'
+  transcription_reg <- data.frame(is_TF=transcription_reg)
+  rownames(transcription_reg) <- rownames(N41hHM)
+  annot_col <- list(condition=c(N4_0h='grey', N4_1h='gold', N4_3h='orange', N4_6h='red'),
+                                  cluster=c(resting='darkgrey', early_activation='lightslateblue',
+                                            late_activation='slateblue4'),
+                                  is_TF=c(not_TF='black', TF='dodgerblue'))
+  
+  hmcol <- colorRampPalette(c('blue', 'white', 'red'))(200)
+  pheatmap(exprs(N41hHM)[,order(pt$DPT)], 
+           annotation_col=cols_df[order(pt$DPT), ], 
+           cluster_rows=TRUE, cluster_cols=FALSE,
+           clustering_distance_rows='correlation',
+           annotation_row=transcription_reg,
+           legend=TRUE,
+           annotation_colors=annot_col,
+           annotation_names_row=FALSE,
+           annotation_names_col=FALSE,
+           labels_row=fData(N41hHM)$symbol, labels_col='', color=hmcol, cexRow=0.8)
+  if(namepdf != 'null'){
+    dev.off()
+  }
+  
+  ## and finally plot a few genes out
+  
+  box_plot2 <- function(gene_symbol, sceset, split_facs, cols){
+    genen <- rownames(fData(sceset))[fData(sceset)$symbol %in% gene_symbol]
+    temp <- split(exprs(sceset)[genen,], 
+                  factor(as.character(pData(sceset)$Sorted.Cell.Type), levels=split_facs))
+    stripchart(temp, method='jitter', vertical=TRUE, pch=20, col=cols, las=1, 
+               xlim=c(0.5,length(temp)+0.5), 
+               ylab=bquote('log'[2] ~ .(gene_symbol) ~ 'expression'), cex.lab=1.3, cex.axis=1.1)
+    boxplot(temp, outline=FALSE, add=T, col=rgb(0,0,0, alpha=0), axes=F)
+  }
+
+  if(namepdf != 'null'){
+    pdf(paste0(namepdf, '_genes.pdf'), height=5, width=4)
+  }
+  par(mfrow=c(2,2), mgp=c(1.5,0.5,0), mar=c(3,3.5,0.2,0.2), bty='l')
+  for(i in 1:length(genes)){
+    box_plot2(genes[i], sceset=sce, 
+             split_facs=c('0h', '1h', '3h', '6h'), 
+             cols=c('grey', 'gold', 'orange', 'red'))
+  }  
+  if(namepdf != 'null'){
+    dev.off()
+  }
+  return(pval)
+}
+
+pval <- enrich_plots(sce, resTC$pt, clusts, bestB1unique, TFs, genes=c('Nr4a1', 'Fosb', 'Egr1', 'Nr4a2'))
+print(paste0("enrichment p-value is ", as.character(signif(pval, 3))))
+
+pval <- enrich_plots(sce, resTC$pt, clusts, bestB1unique, TFs, namepdf = 'DPT_CBT_TC_spikenorm_filt05_cluster2_TFs', genes=c('Nr4a1', 'Fosb', 'Egr1', 'Nr4a2'))
+
+
+
+
+```
+
+And finally, let's look at the most activated cluster (cluster 3) - how does it compare to unstimulated cells?
+
+```{r}
+res2 <- glmLRT(fit, contrast=c(-1,0,1,0,0,0))
+bestB2 <- data.frame(topTags(res2, n=nrow(z_s)))
+bestB2$symbol <- as.character(fData(sce)[rownames(bestB2),'symbol'])
+head(bestB2)
+
+write.table(bestB2, 'DPT_CBT_TC_spikenorm_filt05_lateactivation_cluster.txt', sep='\t', quote=F)
+```
+
+Now let's look at gene set enrichment in cells in the early activation versus unstimulated and late activation versus unstimulated clusters.  We note that we are taking into account gene length in this analysis as it is comparative between gene sets.
+
+```{r}
+library(limma)
+library(org.Mm.eg.db)
+xx <- as.list(org.Mm.egENSEMBL2EG)
+
+## use UCSC table downloaded 20170503 Ensembl gene annotation of mm10
+anno <- read.table('~/Documents/Post_doc/Sync/Experiments/scRNA-seq/annotation_resources/mm10_ENSG/mm10_ensg_annotation_ucsc_20170503', header=T, comment.char = '', sep='\t')
+len_vec <- abs(anno$txStart-anno$txEnd)
+len_df <- data.frame(name=anno$name, length=len_vec, gene=anno$name2)
+## these are the transcript lengths but we need to get the gene lengths because we've dealt with genes in our analysis
+## we'll take the maximum transcript length for genes for which there are multiple transcripts
+lens <- split(len_df, len_df$gene)
+len_vec2 <- lapply(lens, function(x) {max(x$length)})
+GO1 <- goana(res1, species="Mm", geneid=xx[rownames(res1)], FDR=0.05, trend=unlist(len_vec2)[rownames(res1)])
+GO1tab <- topGO(GO1, ont="BP", number=Inf)
+head(GO1tab)
+
+GO2 <- goana(res2, species="Mm", geneid=xx[rownames(res2)], FDR=0.05, trend=unlist(len_vec2)[rownames(res2)])
+GO2tab <- topGO(GO2, ont="BP", number=Inf)
+head(GO2tab)
+```
+
+And now we make some plots of the top 20 enriched categories for visualisation.
+
+```{r}
+
+GOs <- list(early=GO1tab, late=GO2tab)
+GOs <- lapply(GOs, function(x) {
+  adjp <- 0.05/nrow(x)
+  return(x[(x$P.Up < adjp) | (x$P.Down < adjp),])
+})
+
+for(i in 1:length(GOs)){
+  enrich <- apply(GOs[[i]], 1, function(x){
+   if(as.numeric(x[6]) < as.numeric(x[7])){
+      enrich <- -log10(as.numeric(x[6]))
+    } else {
+      enrich <- log10(as.numeric(x[7]))
+    }
+    return(enrich)   
+    })
+  GOs[[i]]$enrich <- enrich
+}
+
+## and just plot out the top 20 for each
+
+GOs20 <- lapply(GOs, function(x) {
+  top20 <- abs(x$enrich)[order(abs(x$enrich), decreasing=TRUE)][20]
+  temp <- x[which(abs(x$enrich) >= top20),]
+  return(temp[order(temp$enrich),])
+})
+
+
+par(mar=c(5.1,22.1,2.1,2.1), mgp=c(2,1,0))
+barplot(GOs20[[1]]$enrich, horiz=TRUE, beside=TRUE, main='early activation cluster',
+        col=c('lightslateblue'), las=1, xlab=expression(paste("-log"[10], " adjusted p-value x direction of regulation")),
+        names.arg=GOs20[[1]]$Term, cex.names=0.8)
+
+pdf('DPT_CBT_TC_spikenorm_filt05_cluster2_GO20.pdf', height=5, width=8)
+par(mar=c(5.1,25.1,2.1,2.1), mgp=c(2,1,0))
+barplot(GOs20[[1]]$enrich, horiz=TRUE, beside=TRUE, main='early activation cluster',
+        col=c('lightslateblue'), las=1, xlab=expression(paste("-log"[10], " adjusted p-value")),
+        names.arg=GOs20[[1]]$Term, cex.names=0.8)
+dev.off()
+
+par(mar=c(5.1,22.1,2.1,2.1), mgp=c(2,1,0))
+barplot(GOs20[[2]]$enrich, horiz=TRUE, beside=TRUE, main='late activation cluster',
+        col=c('slateblue4'), las=1, xlab=expression(paste("-log"[10], " adjusted p-value x direction of regulation")),
+        names.arg=GOs20[[2]]$Term, cex.names=0.8)
+
+pdf('DPT_CBT_TC_spikenorm_filt05_cluster3_GO20.pdf', height=5, width=8)
+par(mar=c(5.1,25.1,2.1,2.1), mgp=c(2,1,0))
+barplot(GOs20[[2]]$enrich, horiz=TRUE, beside=TRUE, main='late activation cluster',
+        col=c('slateblue4'), las=1, xlab=expression(paste("-log"[10], " adjusted p-value")),
+        names.arg=GOs20[[2]]$Term, cex.names=0.8)
+dev.off()
+
+```
+
+
+```{r}
+sessionInfo()
+```
+

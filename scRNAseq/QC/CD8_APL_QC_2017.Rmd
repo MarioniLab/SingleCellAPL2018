@@ -1,0 +1,424 @@
+---
+title: "CD8_2017_scRNAseq_QC"
+author: "Arianne Richard"
+date: "4/11/2017"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+knitr::opts_knit$set(root.dir = '~/Documents/Post_doc/Sync/Experiments/scRNA-seq/naive APLs combined analyses/RMD_files/')
+```
+
+This script runs through the QC process for two separate batches of single-cell sequencing data. The first batch contained 2 96-well plates of cells and the second contained 4 96-well plates.
+
+We will process each batch separately and save the resulting datasets as SCESet objects.
+
+Each dataset was aligned with Subread and counted using featureCounts, keeping duplicate reads.  We start this processing from the resulting counts table.
+
+Start with the first batch and read in data and annotation.
+
+```{r}
+library(R.utils)
+library(gdata)
+library(scater)
+library(scran)
+
+load('~/Documents/Post_doc/Sync/Experiments/scRNA-seq/20160727_sc_stim_and_sort/sequencing/20160909_FP34_data/20160909_CD8APL_expt1/data/counts_leaveDup.RData')
+sanno <- read.table('~/Documents/Post_doc/Sync/Experiments/scRNA-seq/20160727_sc_stim_and_sort/sequencing/20160909_FP34_data/20160909_CD8APL_expt1/support_files/20160909_cells_seq.txt', sep='\t', header=TRUE)
+sanno$Name <- paste0(sanno$Sequencing.SLX.tube, '.', sanno$Index, '.HGFMMBBXX.s_8.r_1')
+rownames(sanno) <- as.character(sanno$Name)
+```
+
+Look at the number and fraction of mapped reads.
+
+```{r}
+mapped <- apply(out$counts, 2, function(x) {log2(sum(x))})
+plot(mapped, xlab='sample', ylab='log2(Assigned)') 
+mapped <- data.frame(mapped)
+mapped$plate <- sanno[rownames(mapped), 'Original.sort.plate']
+mapped$condition <- sanno[rownames(mapped), 'Sorted.Cell.Type']
+mapped$condition <- factor(mapped$condition, levels=c('N4', 'T4', 'G4', 'NP68', 'null'))
+
+boxplot(split(mapped$mapped, mapped$plate), ylab='log2(Assigned)')
+
+boxplot(split(mapped$mapped, mapped$condition), ylab='log2(Assigned)')
+```
+
+Look at the ERCC spike-ins and mitochondrial genes.
+
+```{r}
+ERCC_indeces <- grep('ERCC*', rownames(out$counts))
+ERCC_sum <- apply(out$counts[ERCC_indeces,], 2, sum)
+genic_sum <- apply(out$counts[-ERCC_indeces,], 2, sum)
+
+plot(log2(ERCC_sum), log2(genic_sum), xlab='log2(ERCC counts)', ylab='log2(Mm gene counts)')
+
+MT_indeces <- grep('chrM', out$annotation$Chr)
+MT_sum <- apply(out$counts[MT_indeces,], 2, sum)
+genic_noMT_sum <- apply(out$counts[-c(ERCC_indeces, MT_indeces),], 2, sum)
+
+plot(log2(MT_sum), log2(genic_noMT_sum), xlab='log2(mitrochondrial gene counts)', ylab='log2(non-mitochondrial Mm gene counts)')
+```
+
+Look at the number of genes expressed per sample.
+
+```{r}
+num_genes_exp <- apply(out$counts[-ERCC_indeces, ], 2, function(x) {length(which(x >0))})
+
+plot(num_genes_exp, ylab='number of genes')
+
+num_genes_exp <- data.frame(num_genes_exp)
+num_genes_exp$plate <- sanno[rownames(num_genes_exp), 'Original.sort.plate']
+num_genes_exp$condition <- sanno[rownames(num_genes_exp), 'Sorted.Cell.Type']
+num_genes_exp$condition <- factor(num_genes_exp$condition, levels=c('N4', 'T4', 'G4', 'NP68', 'null'))
+
+boxplot(split(num_genes_exp$num_genes_exp, num_genes_exp$plate), ylab='number of genes')
+
+boxplot(split(num_genes_exp$num_genes_exp, num_genes_exp$condition), ylab='number of genes')
+```
+
+Now coerse the data into an SCESet object and add FACS data.
+
+```{r}
+sce <- newSCESet(countData=out$counts)
+is.spike <- grepl('ERCC*', rownames(out$counts))
+is.mito <- grepl('chrM', out$annotation$Chr)
+sce <- calculateQCMetrics(sce, feature_controls=list(ERCC=is.spike, Mt=is.mito))
+isSpike(sce) <- 'ERCC'
+
+pdat <- pData(sce)
+pdat <- cbind(pdat, sanno[rownames(pdat),])
+
+# We will ultimately exclude the cells from Test Plate 2, so ignoring their index data here
+indexdatdir <- '~/Documents/Post_doc/Sync/Experiments/scRNA-seq/20160727_sc_stim_and_sort/sort data/index files/'
+index_files <- list.files(path=indexdatdir, pattern="*.csv")
+index_files <- index_files[-grep('test', index_files)]
+index_files <- index_files[-grep('media', index_files)]
+index_files <- strsplit(index_files, split=' ')
+index_files <- data.frame(do.call('rbind', index_files))
+colnames(index_files) <- c('peptide', 'plate')
+index_files <- split(index_files, index_files$plate)
+indeces <- vector('list', length(index_files))
+names(indeces) <- names(index_files)
+for(i in 1:length(indeces)){
+  indeces[[i]] <- vector('list', nrow(index_files[[i]]))
+  names(indeces[[i]]) <- as.character(index_files[[i]]$peptide)
+  for(j in 1:length(indeces[[i]])){
+    indeces[[i]][[j]] <- read.table(paste0(indexdatdir, index_files[[i]][j,1], ' ', index_files[[i]][j, 2]), sep=',', na.string='NaN', skip=1, header=TRUE, row.names=1)
+    colnames(indeces[[i]][[j]])[1:2] <- c(as.character(indeces[[i]][[j]][1,1]), as.character(indeces[[i]][[j]][1,2]))
+    indeces[[i]][[j]] <- indeces[[i]][[j]][2:nrow(indeces[[i]][[j]]),]
+  }
+}
+
+## Adding information about accidental duplication of cells in plate 2 row A; these cells were not sequenced, so this is somewhat unnecessary.
+indeces$plate2.csv$G4[c(1:6),'Events'] <- 1
+## adding a cell number QC field to index data
+for(i in 1:length(indeces)){
+  cell_num_QC <- data.frame(lapply(indeces[[i]], function(x) {as.numeric(as.character(x$Events))}))
+  cell_num_QC$sum <- apply(cell_num_QC, 1, sum)
+  for(j in 1:length(indeces[[i]])){
+    indeces[[i]][[j]]$cell_num_QC <- cell_num_QC$sum
+  }
+  print(cell_num_QC$sum)
+}
+## add sequencing sample name to indeces database as new FACS df
+FACS <- vector('list', 0)
+names(indeces) <- c('Plate 1', 'Plate 2', 'Plate 3', 'Plate 4')
+for (i in 1:length(indeces)){
+  plate <- pdat[pdat$Original.sort.plate %in% names(indeces)[i],]
+  if(nrow(plate)>0){
+    rownames(plate) <- paste0(plate$Original.sort.plate.row, plate$Original.sort.plate.column)
+    for (j in 1:length(indeces[[i]])){
+      indeces[[i]][[j]] <- indeces[[i]][[j]][as.numeric(as.character(indeces[[i]][[j]]$Events)) > 0,]
+      indeces[[i]][[j]]$seq_name <- plate[rownames(indeces[[i]][[j]]), 'Name']
+    }
+  }
+  if ('seq_name' %in% colnames(indeces[[i]][[1]])) {
+    FACS <- c(FACS, indeces[i])
+  }
+}
+FACS <- lapply(FACS, function(x) {do.call('rbind', x)})
+FACS <- do.call('rbind', FACS)
+rownames(FACS) <- FACS$seq_name
+pdat <- cbind(pdat, FACS[rownames(pdat),])
+pData(sce) <- pdat
+
+pdat <- pData(sce)
+pdat$log10CD25 <- log10(as.numeric(as.character(pdat$X.488.530.40)))
+pdat$log10CD71 <- log10(as.numeric(as.character(pdat$X.488.710.50)))
+pdat$log10prolif <- log10(as.numeric(as.character(pdat$X.405.460.50)))
+pdat$log10LiveDead <- log10(as.numeric(as.character(pdat$X.405.520.35)))
+pdat$log10CD8 <- log10(as.numeric(as.character(pdat$X.405.660.20)))
+pdat$log10CD69 <- log10(as.numeric(as.character(pdat$X.640.670.30)))
+pdat$log10CD62L <- log10(as.numeric(as.character(pdat$X.561.585.29)))
+pdat$log10CD44 <- log10(as.numeric(as.character(pdat$X.640.750LP)))
+pdat$log10CD154 <- log10(as.numeric(as.character(pdat$X.561.750LP)))
+pData(sce) <- pdat
+
+```
+
+Now filter the data for outliers to remove bad cells.  We employ a threshold of 3 median absolute deviations for each paramter.  For library size and number of genes detected, we only filter low cells.  For ratios of chromosomal genes to ERCC spikes and mitochondrial genes, we filter out cells that are either high or low.
+
+```{r}
+libsize.drop <- isOutlier(sce$total_counts, nmads=3, type="lower", log=TRUE)
+feature.drop <- isOutlier(sce$total_features, nmads=3, type="lower", log=TRUE)
+## these metrics only flag the blank
+
+mito.drop <- isOutlier(sce$pct_counts_feature_controls_Mt, nmads=3, type="higher")
+spike.drop <- isOutlier(sce$pct_counts_feature_controls_ERCC, nmads=3, type="higher")
+outliers_ERCC <- abs(median(log2(genic_sum)-log2(ERCC_sum)) - (log2(genic_sum)-log2(ERCC_sum))) > 3*mad(log2(genic_sum)-log2(ERCC_sum))
+outliers_MT <- abs(median(log2(genic_noMT_sum)-log2(MT_sum)) - (log2(genic_noMT_sum)-log2(MT_sum))) > 3*mad(log2(genic_noMT_sum)-log2(MT_sum))
+
+sce <- sce[,!(libsize.drop | feature.drop | mito.drop | spike.drop | outliers_ERCC | outliers_MT)]
+data.frame(ByLibSize=sum(libsize.drop), ByFeature=sum(feature.drop), ByMito=sum(mito.drop), BySpike=sum(spike.drop), ByAltSpike=sum(outliers_ERCC), ByAltMito=sum(outliers_MT), Remaining=ncol(sce))
+```
+
+Now we add feature Data from UCSC mm10 ensGene database.
+
+```{r}
+fdat <- fData(sce)
+name_map <- read.table('~/Documents/Post_doc/Sync/Experiments/scRNA-seq/annotation_resources/mm10_ENSG/ucsc_mm10_ensGene', 
+                       header=TRUE, sep='\t', quote='\"', comment.char="")
+name_map2 <- read.table('~/Documents/Post_doc/Sync/Experiments/scRNA-seq/annotation_resources/mm10_ENSG/ucsc_mm10_ensemblToGeneName', 
+                        row.names=1)
+rownames(name_map) <- as.character(name_map$name)
+name_map$symbol <- name_map2[rownames(name_map),1]
+name_map_simp <- name_map[,c('name2', 'symbol')]
+name_map_simp <- name_map_simp[!duplicated(name_map_simp),]
+name_map_simp <- rbind(name_map_simp, data.frame(name2=rownames(out$counts)[ERCC_indeces], symbol=rownames(out$counts)[ERCC_indeces]))
+rownames(name_map_simp) <- as.character(name_map_simp$name2)
+annot <- out$annotation
+rownames(annot) <- as.character(annot$GeneID)
+annot$symbol <- name_map_simp[rownames(annot), 'symbol']
+fdat <- cbind(fdat, annot[rownames(fdat),])
+fData(sce) <- fdat
+```
+
+And finally save the resulting SCEset.
+
+```{r}
+saveRDS(sce, file='sce_run1.rds')
+```
+
+Now clear the slate and run the same process on sequencing run 2.  This second sequencing run was performed in two separate lanes on two separate dates (the same library pool was run both times).
+
+```{r}
+load('~/Documents/Post_doc/Sync/Experiments/scRNA-seq/20161026_stim_and_sort/sequencing/20170207_FP1234_data/20170207_CD8APL_expt2/data/counts_leaveDup.RData')
+out2 <- out
+rm(out)
+load('~/Documents/Post_doc/Sync/Experiments/scRNA-seq/20161026_stim_and_sort/sequencing/20170103_FP1234_data/20170103_CD8APL_expt2/data/counts_leaveDup.RData')
+out1 <- out
+rm(out)
+```
+
+Sanity checks for samples and genes in both runs, as well as correlation between samples to verify same library pool was run.
+
+```{r}
+## check all same sampleID order
+names1 <- gsub('HH7K7BBXX.s_4.r_1', '', colnames(out1$counts))
+names2 <- gsub('HHH7TBBXX.s_7.r_1', '', colnames(out2$counts))
+table(names1==names2)
+## all true
+
+## and all same geneID order
+table(rownames(out1$counts) == rownames(out2$counts))
+## also all true
+
+corvec <- vector('numeric', ncol(out1$counts))
+
+for(i in 1:ncol(out1$counts)) {
+  corvec[i] <- cor(out1$counts[,i], out2$counts[,i])
+}
+hist(corvec, breaks=50)
+
+## empirical test by scrambling columns
+perm_corvec <- matrix(nrow=100, ncol=ncol(out1$counts))
+for(j in 1:nrow(perm_corvec)){
+  perm_counts <- out2$counts[,sample(ncol(out2$counts))]
+  for(i in 1:ncol(perm_corvec)) {
+    perm_corvec[j,i] <- cor(out1$counts[,i], perm_counts[,i])
+  }
+}
+
+frac_above <- corvec
+for(i in 1:length(frac_above)){
+  frac_above[i] <- length(which(perm_corvec[,i] > frac_above[i]))
+}
+table(frac_above)
+```
+
+This all looks okay, so combine the counts tables and keep going.
+
+```{r}
+counts1 <- out1$counts
+colnames(counts1) <- gsub('.HH7K7BBXX.s_4.r_1', '', colnames(counts1))
+counts2 <- out2$counts
+colnames(counts2) <- gsub('.HHH7TBBXX.s_7.r_1', '', colnames(counts2))
+add <- function(x) Reduce("+", x)
+counts <- add(list(counts1, counts2))
+annotation <- out1$annotation
+
+sanno <- read.table('~/Documents/Post_doc/Sync/Experiments/scRNA-seq/20161026_stim_and_sort/sequencing/20170207_FP1234_data/20170207_CD8APL_expt2/support_files/20170103_cells_seq.txt', sep='\t', header=TRUE)
+sanno$Name <- paste0(sanno$Sequencing.SLX.tube, '.', sanno$Index)
+sanno$Name <- gsub('-i', '_i', as.character(sanno$Name))
+rownames(sanno) <- as.character(sanno$Name)
+```
+
+Look at the same diagnostic plots as previously.
+
+```{r}
+mapped <- apply(counts, 2, function(x) {log2(sum(x))})
+plot(mapped, xlab='sample', ylab='log2(Assigned)')
+mapped <- data.frame(mapped)
+mapped$plate <- sanno[rownames(mapped), 'Original.sort.plate']
+mapped$condition <- sanno[rownames(mapped), 'Sorted.Cell.Type']
+mapped$condition <- factor(mapped$condition, levels=c('N4 6h', 'T4 6h', 'G4 6h', 'NP68 6h', 'N4 3h', 'N4 1h', 'unstimulated', 'null'))
+boxplot(split(mapped$mapped, mapped$plate), ylab='log2(Assigned)')
+par(mar=c(7, 4,4,2))
+boxplot(split(mapped$mapped, mapped$condition), ylab='log2(Assigned)', las=2)
+
+ERCC_indeces <- grep('ERCC*', rownames(counts))
+ERCC_sum <- apply(counts[ERCC_indeces,], 2, sum)
+genic_sum <- apply(counts[-ERCC_indeces,], 2, sum)
+plot(log2(ERCC_sum), log2(genic_sum))
+
+MT_indeces <- grep('chrM', annotation$Chr)
+MT_sum <- apply(counts[MT_indeces,], 2, sum)
+genic_noMT_sum <- apply(counts[-c(ERCC_indeces, MT_indeces),], 2, sum)
+plot(log2(MT_sum), log2(genic_noMT_sum))
+
+## plot number of genes expressed per sample
+num_genes_exp <- apply(counts[-ERCC_indeces, ], 2, function(x) {length(which(x >0))})
+plot(num_genes_exp, ylab='number of genes')
+num_genes_exp <- data.frame(num_genes_exp)
+num_genes_exp$plate <- sanno[rownames(num_genes_exp), 'Original.sort.plate']
+num_genes_exp$condition <- sanno[rownames(num_genes_exp), 'Sorted.Cell.Type']
+num_genes_exp$condition <- factor(num_genes_exp$condition, levels=c('N4 6h', 'T4 6h', 'G4 6h', 'NP68 6h', 'N4 3h', 'N4 1h', 'unstimulated', 'null'))
+boxplot(split(num_genes_exp$num_genes_exp, num_genes_exp$plate), ylab='number of genes')
+par(mar=c(7,4,4,2))
+boxplot(split(num_genes_exp$num_genes_exp, num_genes_exp$condition), ylab='number of genes', las=2)
+```
+
+Now coerse the data into an SCESet object and add FACS data.
+
+```{r}
+sce <- newSCESet(countData=counts)
+is.spike <- grepl('ERCC*', rownames(counts))
+is.mito <- grepl('chrM', annotation$Chr)
+sce <- calculateQCMetrics(sce, feature_controls=list(ERCC=is.spike, Mt=is.mito))
+isSpike(sce) <- 'ERCC'
+
+pdat <- pData(sce)
+pdat <- cbind(pdat, sanno[rownames(pdat),])
+
+# then add index sorting information
+indexdatdir <- '~/Documents/Post_doc/Sync/Experiments/scRNA-seq/20161026_stim_and_sort/sort data/index files/'
+index_files <- list.files(path=indexdatdir, pattern="*.csv")
+index_files <- index_files[-grep('test', index_files)]
+index_files <- index_files[-grep('medium', index_files)]
+index_files_null <- index_files[grep('Null', index_files)]
+index_files <- index_files[-grep('Null', index_files)]
+index_files <- mapply(c, index_files, strsplit(index_files, split=' '), SIMPLIFY=FALSE)
+index_files <- lapply(index_files, function(x) {x[c(1,2,3,5)]})
+index_files_null <- mapply(c, index_files_null, strsplit(index_files_null, split=' '), SIMPLIFY=FALSE)
+index_files_null <- lapply(index_files_null, function(x) {c(x[1:2], '0h', x[4])})
+index_files <- c(index_files, index_files_null)
+index_files <- data.frame(do.call('rbind', index_files))
+colnames(index_files) <- c('file', 'peptide', 'time', 'plate')
+index_files <- split(index_files, index_files$plate)
+indeces <- vector('list', length(index_files))
+names(indeces) <- names(index_files)
+for(i in 1:length(indeces)){
+  indeces[[i]] <- vector('list', nrow(index_files[[i]]))
+  names(indeces[[i]]) <- paste(as.character(index_files[[i]]$peptide), as.character(index_files[[i]]$time), sep='_')
+  for(j in 1:length(indeces[[i]])){
+    indeces[[i]][[j]] <- read.table(paste0(indexdatdir, as.character(index_files[[i]][j,1])), na.string='NaN', skip=1, header=T, row.names=1, sep=',')
+    colnames(indeces[[i]][[j]])[1:2] <- c(as.character(indeces[[i]][[j]][1,1]), as.character(indeces[[i]][[j]][1,2]))
+    indeces[[i]][[j]] <- indeces[[i]][[j]][2:nrow(indeces[[i]][[j]]),]
+  }
+}
+
+## add sequencing sample name to indeces database as new FACS df
+FACS <- vector('list', 0)
+names(indeces) <- c('Plate 1', 'Plate 2', 'Plate 3', 'Plate 4')
+for (i in 1:length(indeces)){
+  plate <- pdat[pdat$Original.sort.plate %in% names(indeces)[i],]
+  if(nrow(plate)>0){
+    rownames(plate) <- paste0(plate$Original.sort.plate.row, plate$Original.sort.plate.column)
+    for (j in 1:length(indeces[[i]])){
+      indeces[[i]][[j]] <- indeces[[i]][[j]][as.numeric(as.character(indeces[[i]][[j]]$Events)) == 1,]
+      indeces[[i]][[j]]$seq_name <- plate[rownames(indeces[[i]][[j]]), 'Name']
+    }
+  }
+  if ('seq_name' %in% colnames(indeces[[i]][[1]])) {
+    FACS <- c(FACS, indeces[i])
+  }
+}
+FACS <- lapply(FACS, function(x) {do.call('rbind', x)})
+FACS <- do.call('rbind', FACS)
+rownames(FACS) <- FACS$seq_name
+pdat <- cbind(pdat, FACS[rownames(pdat),])
+pData(sce) <- pdat
+
+## identify any wells with > 1 cell
+## because FACS data was added for all cells with Event ==1, we want to ID cells without FACS data
+notonecell <- is.na(pData(sce)$Events)
+
+#### also take log of FACS data
+pdat <- pData(sce)
+pdat$log10CD25 <- log10(as.numeric(as.character(pdat$X.530.40..488.)))
+pdat$log10prolif <- log10(as.numeric(as.character(pdat$X.460.50..405.)))
+pdat$log10LiveDead <- log10(as.numeric(as.character(pdat$X.520.35..405.)))
+pdat$log10CD8 <- log10(as.numeric(as.character(pdat$X.650LP..405.)))
+pdat$log10CD69 <- log10(as.numeric(as.character(pdat$X.670.30..640.)))
+pdat$log10CD62L <- log10(as.numeric(as.character(pdat$X.585.29..561.)))
+pdat$log10CD44 <- log10(as.numeric(as.character(pdat$X.750LP..640.)))
+pData(sce) <- pdat
+```
+
+And now apply the same 3 median absolute deviation filters to this sequencing data.
+
+```{r}
+libsize.drop <- isOutlier(sce$total_counts, nmads=3, type="lower", log=TRUE)
+feature.drop <- isOutlier(sce$total_features, nmads=3, type="lower", log=TRUE)
+
+mito.drop <- isOutlier(sce$pct_counts_feature_controls_Mt, nmads=3, type="higher")
+spike.drop <- isOutlier(sce$pct_counts_feature_controls_ERCC, nmads=3, type="higher")
+outliers_ERCC <- abs(median(log2(genic_sum)-log2(ERCC_sum)) - (log2(genic_sum)-log2(ERCC_sum))) > 3*mad(log2(genic_sum)-log2(ERCC_sum))
+outliers_MT <- abs(median(log2(genic_noMT_sum)-log2(MT_sum)) - (log2(genic_noMT_sum)-log2(MT_sum))) > 3*mad(log2(genic_noMT_sum)-log2(MT_sum))
+
+sce <- sce[,!(libsize.drop | feature.drop | mito.drop | spike.drop | outliers_ERCC | outliers_MT | notonecell)]
+data.frame(ByLibSize=sum(libsize.drop), ByFeature=sum(feature.drop), ByMito=sum(mito.drop), BySpike=sum(spike.drop), ByAltSpike=sum(outliers_ERCC), ByAltMito=sum(outliers_MT), ByNotOneCell=sum(notonecell), Remaining=ncol(sce))
+```
+
+Add the feature data to the SCESet object.
+
+```{r}
+fdat <- fData(sce)
+name_map <- read.table('~/Documents/Post_doc/Sync/Experiments/scRNA-seq/annotation_resources/mm10_ENSG/ucsc_mm10_ensGene', header=TRUE, sep='\t', quote='\"', comment.char="")
+name_map2 <- read.table('~/Documents/Post_doc/Sync/Experiments/scRNA-seq/annotation_resources/mm10_ENSG/ucsc_mm10_ensemblToGeneName', row.names=1)
+rownames(name_map) <- as.character(name_map$name)
+name_map$symbol <- name_map2[rownames(name_map),1]
+name_map_simp <- name_map[,c('name2', 'symbol')]
+name_map_simp <- name_map_simp[!duplicated(name_map_simp),]
+name_map_simp <- rbind(name_map_simp, data.frame(name2=rownames(counts)[ERCC_indeces], symbol=rownames(counts)[ERCC_indeces]))
+rownames(name_map_simp) <- as.character(name_map_simp$name2)
+annot <- annotation
+rownames(annot) <- as.character(annot$GeneID)
+annot$symbol <- name_map_simp[rownames(annot), 'symbol']
+fdat <- cbind(fdat, annot[rownames(fdat),])
+fData(sce) <- fdat
+```
+
+Save the SCESet object.
+
+```{r}
+saveRDS(sce, file='sce_run2.rds')
+```
+
+Save session information.
+
+```{r}
+sessionInfo()
+```

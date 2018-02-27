@@ -1,0 +1,267 @@
+---
+title: "CD8_APLseparated_analyses_2017"
+author: "Arianne Richard"
+date: "5/3/2017"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+knitr::opts_knit$set(root.dir = '~/Documents/Post_doc/Sync/Experiments/scRNA-seq/naive APLs combined analyses/RMD_files/')
+```
+
+This script runs through analyses of the altered affinity ligand stimulation data from a single-cell sequencing experiment looking at early activation of CD8+ T cells - this data was collected from experiments run on 20160727 and 20161026.  These analyses treat each dataset separately.
+
+First we'll load the data and filter uninformative genes.
+
+```{r}
+library(scater)
+library(scran)
+library(RColorBrewer)
+library(gplots)
+source('dpt_plots.R')
+source('dpt.R')
+library(pheatmap)
+
+sce1 <- readRDS('sce_run1.rds')
+sce2 <- readRDS('sce_run2.rds')
+
+## filter to remove non-expressed genes -- require detection in at least 5% of cells in each batch
+drop_filt <- apply(counts(sce1), 1, function(y) {length(which(y>0)) >= ncol(sce1)*0.05})
+sce1 <- sce1[drop_filt,]
+mean_filt <- apply(counts(sce1), 1, function(y) {mean(y) >=1})
+sce1 <- sce1[mean_filt,]
+drop_filt <- apply(counts(sce2), 1, function(y) {length(which(y>0)) >= ncol(sce2)*0.05})
+sce2 <- sce2[drop_filt,]
+mean_filt <- apply(counts(sce2), 1, function(y) {mean(y) >=1})
+sce2 <- sce2[mean_filt,]
+
+## calculate spike factors
+sce1 <- computeSpikeFactors(sce1, general.use=TRUE)
+sce2 <- computeSpikeFactors(sce2, general.use=TRUE)
+
+## normalise the data
+sce1 <- normalise(sce1, exprs_values='counts', return_norm_as_exprs=TRUE, logExprsOffset=1)
+sce2 <- normalise(sce2, exprs_values='counts', return_norm_as_exprs=TRUE, logExprsOffset=1)
+
+## fix condition factors empty levels
+sce1$Sorted.Cell.Type <- factor(as.character(sce1$Sorted.Cell.Type))
+sce2$Sorted.Cell.Type <- factor(as.character(sce2$Sorted.Cell.Type))
+
+```
+
+We know from looking at the time-course analysis that we need to batch correct run 2, so let's do that.
+
+```{r}
+library(sva)
+mod <- model.matrix(~factor(as.character(sce2$Sorted.Cell.Type)))
+combat_sce <- ComBat(dat=exprs(sce2), batch=pData(sce2)$Original.sort.plate,
+                     mod=mod, par.prior=TRUE, prior.plots=FALSE)
+exprs(sce2) <- combat_sce
+```
+
+Let's check if we need to do any plate-based batch correction for run1.
+
+```{r}
+plot_splitsce <- function(sce){
+  splitsce <- vector('list', 4)
+  names(splitsce) <- c('N4', 'T4', 'G4', 'NP68')
+  for(i in 1:length(splitsce)){
+    splitsce[[i]] <- sce[,sce$Sorted.Cell.Type %in% names(splitsce)[i]]
+  }
+  splitpcs <- lapply(splitsce, function(x) {prcomp(t(as.matrix(exprs(x))))})
+  par(mfrow=c(2,2))
+  for(i in 1:length(splitpcs)){
+    scesp <- splitsce[[i]]
+    cols2 <- as.character(pData(scesp)$Original.sort.plate)
+    cols2[cols2 %in% 'Plate 3'] <- 'purple'
+    cols2[cols2 %in% 'Plate 4'] <- 'red'
+    par(mgp=c(2,1,0), bty='l')
+    plot(splitpcs[[i]]$x[,1], splitpcs[[i]]$x[,2], xlab='PC1', ylab='PC2', 
+         main=names(splitpcs)[i], col=cols2, pch=16, cex.lab=1.2)
+  }
+}
+
+plot_splitsce(sce1)
+```
+
+It looks like there could be some subtle effects visible in N4 and G4 categories, so we'll batch correct to play it safe.
+
+```{r}
+sce1$Original.sort.plate <- factor(as.character(sce1$Original.sort.plate))
+mod <- model.matrix(~factor(as.character(sce1$Sorted.Cell.Type)))
+combat_sce <- ComBat(dat=exprs(sce1), batch=pData(sce1)$Original.sort.plate,
+                     mod=mod, par.prior=TRUE, prior.plots=FALSE)
+exprs(sce1) <- combat_sce
+```
+
+Now we have sce1 and sce2 normalised and batch-corrected.  We'll remove spikes so they do not interfere with downstream analyses.
+
+```{r}
+sce1 <- sce1[!isSpike(sce1),]
+sce2 <- sce2[!isSpike(sce2),]
+```
+
+We're going to perform RNA flow cytometry to look at earlier time-points with the reduced affinity ligands, but to do this, we need a reliable control gene.  Let's use the sequencing data to find such a control gene. We'll first focus on sce2, which has data from both the time-course and the altered peptide ligand stimulations.  
+
+We'll limit ourselves to genes with less than 20% drop-out, and then look for genes with low variance and minimal association with stimulation condition. We'll use non-batch-corrected values within each plate to calculate variance. We note that there is a mean-variance relationship, but for the purposes of finding an invariant gene, we still want the lowest variance, even if that means we are partially selecting on the mean.
+
+```{r}
+scesplit <- split(colnames(sce2), factor(sce2$Sorted.Cell.Type, 
+                                        levels=c('N4 6h', 'T4 6h', 'G4 6h', 'NP68 6h', 'unstimulated', 'N4 1h', 'N4 3h')))
+scesplit <- lapply(scesplit, function(x) {counts(sce2)[,x]})
+drops <- lapply(scesplit, function(y) {
+  apply(y, 1, function(z) {length(which(z>0)) >= ncol(y)*0.8})})
+drops <- data.frame(drops)
+drops_filt <- apply(drops, 1, function(x){length(which(x)) >= ncol(drops)})
+
+sce2_CG <- sce2[drops_filt,]
+
+sce2_CG <- normalise(sce2_CG, exprs_values='counts', return_norm_as_exprs=TRUE, logExprsOffset=1)
+scesplit <- split(colnames(sce2_CG), factor(sce2_CG$Original.sort.plate))
+scesplit <- lapply(scesplit, function(x) {exprs(sce2_CG)[,x]})
+vars <- lapply(scesplit, function(y) {
+  apply(y, 1, var)})
+vars <- data.frame(vars)
+vars_avg <- apply(vars, 1, mean)
+symbols <- fData(sce2_CG)[names(vars_avg), 'symbol']
+vars_avg <- data.frame(vars_avg, symbols)
+head(vars_avg[order(vars_avg[,1]),], 10)
+```
+
+Now we'll look for lack of association with condition by ANOVA.
+
+```{r}
+anovas <- apply(exprs(sce2), 1, function(z){
+  gene <- z
+  condition <- sce2$Sorted.Cell.Type
+  test <- aov(gene~condition, data.frame(gene, condition))
+  return(summary(test)[[1]][1,5])
+})
+
+vars_avg$anova <- anovas[rownames(vars_avg)]
+plot(-log10(vars_avg$anova), vars_avg$vars_avg, xlab='-log10(anova P-value)', ylab='variance')
+```
+
+Let's keep the ANOVA p-value below 0.01 and the variance below 2.
+
+```{r}
+vars_avg <- vars_avg[(vars_avg$vars_avg < 2) & (vars_avg$anova > 0.01), ]
+vars_avg[order(vars_avg$anova, decreasing=T),]
+```
+
+Looking at the list in order of increasing variance, we'll avoid pseudogenes, non-coding genes etc, which leaves us with Slc34a2 and Rpl39 in the top of the list.  Let's look at these in both scRNA-seq datasets.
+
+```{r}
+boxes_plot <- function(sceset, geneID, mylevels=c('N4 6h', 'T4 6h', 'G4 6h', 'NP68 6h', 'unstimulated', 'N4 1h', 'N4 3h'), ANOVA=TRUE) {
+  genen <- rownames(fData(sceset)[fData(sceset)$symbol %in% geneID,])
+  boxplot(split(exprs(sceset)[genen,],
+                factor(as.character(pData(sceset)$Sorted.Cell.Type),
+                       levels=mylevels)), 
+          pch=20, las=2, ylab=bquote('log'[2] ~ .(geneID) ~ 'expression'),
+          col=c('red', 'green3', 'blue', 'grey40', 'grey', 'gold', 'orange'), 
+          ylim=c(0,12), cex.lab=1.2
+  )
+  if(ANOVA) {
+    a <- signif(summary(aov(gene~condition, 
+                 data.frame(gene=exprs(sceset)[genen,],
+                            condition=factor(sceset$Sorted.Cell.Type))))[[1]][1,5], 3)
+  text(x=length(mylevels)-1, y=11, labels=bquote(ANOVA ~ italic(' p ') ~ .(a)), cex=1.2)
+  }
+}
+
+par(mfrow=c(2,2), bty='l')
+boxes_plot(sce2, 'Slc34a2')
+boxes_plot(sce2, 'Rpl39')
+boxes_plot(sce1, 'Slc34a2', mylevels=c('N4', 'T4', 'G4', 'NP68'))
+boxes_plot(sce1, 'Rpl39', mylevels=c('N4', 'T4', 'G4', 'NP68'))
+
+pdf('Control_genes_spikenorm_filt05_boxplot.pdf', height=8, width=8)
+par(mfrow=c(2,2), mgp=c(2,0.5,0), mar=c(5.1,4.1,1.5,0.5), bty='l')
+boxes_plot(sce2, 'Slc34a2')
+boxes_plot(sce2, 'Rpl39')
+boxes_plot(sce1, 'Slc34a2', mylevels=c('N4', 'T4', 'G4', 'NP68'))
+boxes_plot(sce1, 'Rpl39', mylevels=c('N4', 'T4', 'G4', 'NP68'))
+dev.off()
+```
+
+It looks like Slc34a2 would be the best control gene. Rpl39 is not bad, but it is associated with condition to a small extent in the second dataset. 
+
+Update: Sadly, testing the PrimeFlow reagents for Slc34a2 yielded no signal, and so we will use Rpl39 as a reliable control gene.
+
+Since we're going to use RNA flow cytometry to look at Nr4a1 and Fosb in the APL data at early timepoints.  Let's just quickly check how these genes look in our RNAseq at 6 hours in APL conditions.
+
+```{r}
+par(mfrow=c(2,2), bty='l')
+boxes_plot(sce2, 'Nr4a1', ANOVA=FALSE)
+boxes_plot(sce2, 'Fosb', ANOVA=FALSE)
+boxes_plot(sce1, 'Nr4a1', ANOVA=FALSE)
+boxes_plot(sce1, 'Fosb', ANOVA=FALSE)
+```
+
+So Fosb is unique to the burst and Nr4a1 is more varied (decent expression in T4 6h) though definitely highest in N4 1h.
+
+Let's look at protein expression by condition.
+
+```{r}
+
+protein_violin_plot <- function(protein, sceset, split_facs, cols){
+  protname <- paste0('log10', protein)
+  temp <- pData(sceset)[,c(protname, 'Sorted.Cell.Type')]
+  temp <- temp[temp$Sorted.Cell.Type %in% split_facs,]
+  temp$Sorted.Cell.Type <- factor(as.character(temp$Sorted.Cell.Type), levels=split_facs)
+  colnames(temp) <- c('protein', 'condition')
+  ggplot(temp, aes(condition, protein, fill=factor(condition))) + 
+    geom_violin() + 
+    scale_fill_manual(values=cols) + 
+    guides(fill=FALSE) + 
+    theme_bw() + labs(y=bquote('log'[10] ~ .(protein) ~ 'expression', where=environment())) +
+    theme(panel.border = element_blank(), panel.grid.major = element_blank(),
+          panel.grid.minor = element_blank(), axis.line = element_line(colour = "black"))
+}
+
+par(mfrow=c(2,2))
+protein_violin_plot('CD69', sceset=sce1, 
+            split_facs=c('N4', 'T4', 'G4', 'NP68'), 
+            cols=c('red', 'green3', 'blue', 'grey40'))
+protein_violin_plot('CD69', sceset=sce2, 
+            split_facs=c('N4 6h', 'T4 6h', 'G4 6h', 'NP68 6h'), 
+            cols=c('red', 'green3', 'blue', 'grey40'))
+protein_violin_plot('CD25', sceset=sce1, 
+            split_facs=c('N4', 'T4', 'G4', 'NP68'), 
+            cols=c('red', 'green3', 'blue', 'grey40'))
+protein_violin_plot('CD25', sceset=sce2, 
+            split_facs=c('N4 6h', 'T4 6h', 'G4 6h', 'NP68 6h'), 
+            cols=c('red', 'green3', 'blue', 'grey40'))
+
+
+pdf(paste0('CD69_protein_APL1_spikenorm_filt05_violinplot.pdf'), height=2.5, width=2)
+protein_violin_plot('CD69', sceset=sce1, 
+            split_facs=c('N4', 'T4', 'G4', 'NP68'), 
+            cols=c('red', 'green3', 'blue', 'grey40'))
+dev.off()
+
+pdf(paste0('CD69_protein_APL2_spikenorm_filt05_violinplot.pdf'), height=2.5, width=2)
+protein_violin_plot('CD69', sceset=sce2, 
+            split_facs=c('N4 6h', 'T4 6h', 'G4 6h', 'NP68 6h'), 
+            cols=c('red', 'green3', 'blue', 'grey40'))
+dev.off()
+
+pdf(paste0('CD25_protein_APL1_spikenorm_filt05_violinplot.pdf'), height=2.5, width=2)
+protein_violin_plot('CD25', sceset=sce1, 
+            split_facs=c('N4', 'T4', 'G4', 'NP68'), 
+            cols=c('red', 'green3', 'blue', 'grey40'))
+dev.off()
+
+pdf(paste0('CD25_protein_APL2_spikenorm_filt05_violinplot.pdf'), height=2.5, width=2)
+protein_violin_plot('CD25', sceset=sce2, 
+            split_facs=c('N4 6h', 'T4 6h', 'G4 6h', 'NP68 6h'), 
+            cols=c('red', 'green3', 'blue', 'grey40'))
+dev.off()
+
+
+```
+
+```{r}
+sessionInfo()
+```

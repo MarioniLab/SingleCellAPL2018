@@ -1,0 +1,276 @@
+---
+title: "APL1_CyDAR"
+author: "Arianne Richard"
+date: "3/23/2017"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+knitr::opts_knit$set(root.dir = '~/Documents/Post_doc/Sync/Experiments/CyTOF/APL 1/20161209-12 APL1 CyTOF/analysis2/')
+```
+
+This script should run all necessary preprocessing and analysis functions on APL1 CyTOF data generated in Dec 2016 at the CI flow core.
+
+First we load in the data set and appropriately name all of the channels and samples.
+
+```{r}
+library(ncdfFlow)
+library(cydar)
+library(flowCore)
+f <- list.files(path='~/Documents/Post_doc/Sync/Experiments/CyTOF/APL 1/20161209-12 APL1 CyTOF/data/Debarcoded 1_2/relabeled/', pattern='*0.fcs', full.names=TRUE)
+ncdf <- read.ncdfFlowSet(files=f, ncdfFile='ncdf')
+
+channels <- read.table('~/Documents/Post_doc/Sync/Experiments/CyTOF/APL 1/20161209-12 APL1 CyTOF/20161211_APL1_abs2.txt', sep='\t')
+channels[,1] <- paste0(channels[,1], 'Di')
+
+samples <- read.table('~/Documents/Post_doc/Sync/Experiments/CyTOF/APL 1/20161209-12 APL1 CyTOF/20161211_APL1_samples.txt')
+rownames(samples) <- samples[,1]
+
+pdat <- pData(ncdf)
+pdat$treatment <- samples[rownames(pdat),2]
+pData(ncdf) <- pdat
+
+```
+
+Then we want to normalize the data and remove clogs, debris, dead cells, etc.
+First pool all of the cells and deal with the biggest machine clog.
+
+```{r}
+pool.ff <- poolCells(ncdf, equalize=FALSE)
+plot(data.frame(exprs(pool.ff))$Time, data.frame(exprs(pool.ff))$Y89Di, cex=0.1, xlab='time', ylab='CD45')
+abline(v=2700000, col='dodgerblue')
+abline(v=2950000, col='dodgerblue')
+```
+
+Remove cells within this time gate.
+
+```{r}
+clog <- rectangleGate(filterId="timegate", list("Time"=c(2700000,2950000)))
+clogfilt <- filter(pool.ff, clog)
+pool.ff <- split(pool.ff, clogfilt)['timegate-'][[1]]
+
+plot(data.frame(exprs(pool.ff))$Time, data.frame(exprs(pool.ff))$Y89Di, cex=0.1, xlab='time', ylab='CD45')
+```
+
+Transform the data and find the beads.
+
+```{r}
+pool.ff <- pool.ff[,!colnames(pool.ff) %in% c('Event_length', 'Time', 'Offset', 'Center', 'Width', 'Residual')]
+
+lgcl <- logicleTransform( w = 0.1, t= 10000, m =4.5) ## using default except lowered w
+trans <- transformList(colnames(pool.ff), lgcl)
+#trans <- estimateLogicle(pool.ff, colnames(pool.ff))
+proc.ff <- transform(pool.ff, trans)
+plot(data.frame(exprs(proc.ff))$Eu151Di, data.frame(exprs(proc.ff))$Eu153Di, xlab='Eu151', ylab='Eu153')
+```
+
+Remove these beads.
+
+```{r}
+beads <- rectangleGate(filterId="beadgate", list("Eu153Di"=c(2.5, Inf),
+"Eu153Di"=c(2.5, Inf)))
+
+beadfilt <- filter(proc.ff, beads)
+filt_set <- split(proc.ff, beadfilt)['beadgate-'][[1]]
+plot(data.frame(exprs(filt_set))$Eu151Di, data.frame(exprs(filt_set))$Eu153Di, xlab='Eu151', ylab='Eu153')
+```
+
+Gate on Ir DNA markers for singlets.  Unfortunately, most of this data is in doublets so we'll need to use some options from dnaGate
+
+```{r}
+hist(data.frame(exprs(filt_set))$Ir191Di, breaks=200, xlab='Ir191', main='')
+hist(data.frame(exprs(filt_set))$Ir193Di, breaks=200, xlab='Ir193', main='')
+dna <- dnaGate(filt_set, 'Ir191Di', 'Ir193Di', type='both', rank=2)
+smoothScatter(data.frame(exprs(filt_set))$Ir191Di, data.frame(exprs(filt_set))$Ir193Di)
+polygon(dna@boundaries[,1], dna@boundaries[,2], border="red")
+
+```
+
+Apply these gates in both channels
+
+```{r}
+dnafilt <- filter(filt_set, dna)
+filt_set <- Subset(filt_set, dnafilt)
+hist(data.frame(exprs(filt_set))$Ir191Di, breaks=200, xlab='Ir191', main='')
+hist(data.frame(exprs(filt_set))$Ir193Di, breaks=200, xlab='Ir193', main='')
+```
+
+Exclude dead cells as Pt high. We'll do this manually because we want to be very stringent.
+
+```{r}
+hist(data.frame(exprs(filt_set))$Pt195Di, breaks=200, xlab='Pt195', main='')
+abline(v=2, col='dodgerblue')
+```
+
+Retain only cells that are Pt195Di low.
+
+```{r}
+live <- rectangleGate(filterId="livegate", list("Pt195Di"=c(0, 2)))
+livefilt <- filter(filt_set, live)
+filt_set <- Subset(filt_set, livefilt)
+hist(data.frame(exprs(filt_set))$Pt195Di, breaks=200, xlab='Pt195', main='')
+```
+
+Exclude extreme low values of CD45 as non-haematopoietic.
+
+```{r}
+hist(data.frame(exprs(filt_set))$Y89Di, breaks=200, xlab='CD45', main='')
+```
+
+Gate out 5 MAD lower - just removing the properly negative ones.
+
+```{r}
+haem <- outlierGate(filt_set, 'Y89Di', nmads=5, type='lower')
+haemfilt <- filter(filt_set, haem)
+filt_set <- Subset(filt_set, haemfilt)
+hist(data.frame(exprs(filt_set))$Y89Di, breaks=200, xlab='CD45', main='')
+```
+
+Remove non-T cells.
+
+```{r}
+hist(data.frame(exprs(filt_set))$Tm169Di, breaks=200, xlab='TCRb', main='')
+```
+
+Gate out 6 MAD lower because TCR levels can fall dramatically in activating cells and we don't want to miss these.
+
+```{r}
+Tcell <- outlierGate(filt_set, 'Tm169Di', nmads=6, type='lower')
+Tfilt <- filter(filt_set, Tcell)
+filt_set <- Subset(filt_set, Tfilt)
+hist(data.frame(exprs(filt_set))$Tm169Di, breaks=200, xlab='TCRb', main='')
+```
+
+Remove non-CD8+ T cells.
+
+```{r}
+hist(data.frame(exprs(filt_set))$Er168Di, breaks=200, xlab='CD8a', main='')
+```
+
+Gate out 5 MAD lower because this can also drop dramatically with activation.
+
+```{r}
+CD8 <- outlierGate(filt_set, 'Er168Di', nmads=5, type='lower')
+CD8filt <- filter(filt_set, CD8)
+filt_set <- Subset(filt_set, CD8filt)
+hist(data.frame(exprs(filt_set))$Er168Di, breaks=200, xlab='CD8a', main='')
+```
+
+Now apply these same gates to the separated samples.
+First the clog filter and visualize just sample 2 to see that the filter worked.
+
+```{r}
+processed.exprs <- ncdf
+clogfilt <- filter(processed.exprs, clog)
+processed.exprs <- split(processed.exprs, clogfilt)['timegate-'][[1]]
+plot(data.frame(exprs(processed.exprs[[2]]))$Time, data.frame(exprs(processed.exprs[[2]]))$Y89Di, cex=0.1, xlab='time', ylab='CD45')
+```
+
+Now apply the transformation and apply the bead gate (again visualizing sample 2).
+
+```{r}
+processed.exprs <- processed.exprs[,!colnames(processed.exprs) %in% c('Event_length', 'Time', 'Offset', 'Center', 'Width', 'Residual')]
+processed.exprs <- transform(processed.exprs, trans)
+
+beadfilt <- filter(processed.exprs, beads)
+processed.exprs <- split(processed.exprs, beadfilt)['beadgate-'][[1]]
+plot(data.frame(exprs(processed.exprs[[2]]))$Eu151Di, data.frame(exprs(processed.exprs[[2]]))$Eu153Di, xlab='Eu151', ylab='Eu153')
+```
+
+Now apply the DNA gate (again visualizing sample 2).
+
+```{r}
+processed.exprs <- Subset(processed.exprs, dna)
+hist(data.frame(exprs(processed.exprs[[2]]))$Ir191Di, breaks=100, xlab='Ir191', main='')
+hist(data.frame(exprs(processed.exprs[[2]]))$Ir193Di, breaks=100, xlab='Ir193', main='')
+```
+
+And the live cell gate (again visualizing sample 2).
+
+```{r}
+processed.exprs <- Subset(processed.exprs, live)
+hist(data.frame(exprs(processed.exprs[[2]]))$Pt195Di, breaks=100, xlab='Pt195', main='')
+```
+
+And the CD45 haematopoietic cell gate.
+
+```{r}
+processed.exprs <- Subset(processed.exprs, haem)
+hist(data.frame(exprs(processed.exprs[[2]]))$Y89Di, breaks=100, xlab='CD45', main='')
+```
+
+And the TCRb T cell gate.
+
+```{r}
+processed.exprs <- Subset(processed.exprs, Tcell)
+hist(data.frame(exprs(processed.exprs[[2]]))$Tm169Di, breaks=100, xlab='TCRb', main='')
+```
+
+And the CD8+ cell gate.
+
+```{r}
+processed.exprs <- Subset(processed.exprs, CD8)
+hist(data.frame(exprs(processed.exprs[[2]]))$Er168Di, breaks=100, xlab='CD8a', main='')
+```
+
+Now we can begin running CyDAR analysis. First, limit the markers to those used for proteins. (We're not going to exclude the markers we filtered on because changes in expression of CD45, TCRb and CD8 correspond to activation status and can be interesting! But we want to get rid of DNA, live/dead, etc). Then we look at neighbor distances to determine if our radius default of 0.5 is okay.
+
+```{r}
+processed.exprs <- processed.exprs[,colnames(processed.exprs) %in% channels[,1]]
+cd <- prepareCellData(processed.exprs, naive=FALSE)
+dist <- neighborDistances(cd)
+boxplot(dist, xlab="Number of neighbors", ylab="Tolerance")
+abline(h=0.5, col="red", lwd=2, lty=2)
+```
+
+This looks fine. We have even more cells per hypersphere than needed. Now count cells into hyperspheres, considering only hyperspheres with 5 or more cells, and run statistical analysis under the null hypothesis that none of the peptides has an effect.
+
+```{r}
+cd <- countCells(cd, tol=0.5)
+samples$mouse <- unlist(lapply(strsplit(as.character(samples[,2]), '_'), function(x) {x[1]}))
+samples$peptide <- unlist(lapply(strsplit(as.character(samples[,2]), '_'), function(x) {x[2]}))
+peptide <- samples[colnames(cd), 'peptide']
+mouse <- samples[colnames(cd), 'mouse']
+design <- model.matrix(~ 0 + peptide + mouse)
+
+library(edgeR)
+y <- DGEList(assay(cd), lib.size=cd$totals)
+keep <- aveLogCPM(y) >= aveLogCPM(5, mean(cd$totals))
+table(keep)
+cd2 <- cd[keep,]
+y <- y[keep,]
+
+
+adjc <- cpm(y, log=TRUE, prior.count=3)
+label <- as.character(samples[,2])
+col <- c("blue", "red", "black", "cyan2", "green3")[factor(peptide)]
+plotMDS(adjc, label=label, col=col)
+
+y <- estimateDisp(y, design)
+plotBCV(y)
+
+fit <- glmQLFit(y, design, robust=TRUE)
+summary(fit$df.prior)
+plotQLDisp(fit)
+
+con <- makeContrasts(N4=peptideN4 - peptideNP68,
+                     G4=peptideG4 - peptideNP68,
+                     Q4H7=peptideQ4H7 - peptideNP68,
+                     T4=peptideT4 - peptideNP68, levels=design)
+
+res.all <- glmQLFTest(fit, contrast=con)
+qval.all <- spatialFDR(intensities(cd2), res.all$table$PValue)
+is.sig.all <- qval.all <= 0.05
+summary(is.sig.all)
+
+```
+
+Now we make the plots - these are done with an Rscript ACR_APL1_analysis_singlets_plots2_20170904.R because t-SNE is not identical with each run.
+
+```{r}
+save(list=ls(), file='~/Documents/Post_doc/Sync/Experiments/CyTOF/APL 1/20161209-12 APL1 CyTOF/analysis2/ACR_APL1_singletfilt2_inprogress_20170904.RData')
+
+sessionInfo()
+```
+
