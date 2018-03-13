@@ -1,0 +1,24 @@
+# History files
+*.Rhistory
+*.Rapp.history
+
+# Session Data files
+*.RData
+
+# R Markdown output
+*.html
+*.pdf
+
+# Generated Data files
+*.rds
+
+# Downloaded Data files
+*.txt
+*.zip
+
+# Annoying DS_Store files from Mac
+*.DS_Store
+
+# Funny annotation files I that have no other pattern to recognize
+*ucsc*
+
