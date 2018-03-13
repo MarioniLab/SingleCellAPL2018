@@ -318,18 +318,15 @@ setClass(
 #' @importFrom destiny DiffusionMap
 #' @name Transitions class
 #' @export
-# This function was edited slightly from the original version to be compatible with "destiny" in Bioconductor version 3.5
-# Specifically, the function arguments were reduced to just "data" and "distance" as I was not using the other arguments anyways.
 Transitions <- function(
   data,
+  sigma = NULL,
+  k = NULL,
   distance = c('euclidean', 'cosine', 'rankcor')
 ) {
-  require(Matrix)
-  dm <- DiffusionMap(data, distance = distance)
+  dm <- DiffusionMap(data, sigma, k, distance = distance)
   phi0 <- dm@d_norm / sqrt(sum(dm@d_norm ^ 2))
   d_rot <- Diagonal(x = dm@d_norm ^ -.5)
   
   new('Transitions', transitions = dm@transitions, phi0 = phi0, d_rot = d_rot)
 }
-
-

@@ -226,7 +226,7 @@ dpt_distrib_plot <- function(pt, sce,
                              conditions=c('N4 6h', 'T4 6h', 'G4 6h', 'NP68 6h'), 
                              col=c('red', 'green3', 'blue', 'grey40'), 
                              trajectory_name){
-  temp <- data.frame(DPT=pt$DPT, condition=sce$Sorted.Cell.Type)
+  temp <- data.frame(DPT=pt$DPT, condition=sce$Condition)
   temp <- temp[temp$condition %in% conditions,]
   temp$condition <- factor(as.character(temp$condition), levels=conditions)
   ggplot(temp, aes(condition, DPT, fill=factor(condition))) + 
@@ -244,30 +244,42 @@ quick_dpt <- function(sce, conditions, col, base_condition, stim_condition, pdf_
   ## An extra part has been added to the function to use just the most null and most stimulated conditions 
   ## to find the root cell if a root is not found in the most null condition using all the data.
   
+  ## Because these analyses were originally performed in 2016 before dpt was incorportated into the 
+  ## destiny package, we implemented the old dpt function and wrote our own plotting functions.
+  ## Since the updates to the destiny package, Transitions estimation of sigma now is different by a 
+  ## factor of sqrt(2). To maintain compatibility with our old results, we have adjusted the sigmas by 
+  ## this factor in our function below. 
+  
   library(destiny)
   pcs <- prcomp(t(as.matrix(exprs(sce))), scale=TRUE)
-  ts <- Transitions(data=pcs$x[,c(1:50)], distance='euclidean')
+  require(Matrix)
+  dm <- DiffusionMap(data=pcs$x[,c(1:50)], distance='euclidean')
+  sigs <- optimal_sigma(dm)*2^0.5
+  ts <- Transitions(data=pcs$x[,c(1:50)], distance='euclidean', sigma=sigs)
   pt <- dpt(ts, branching=FALSE)
   rc_min <- which.min(pt$DPT)
   rc_max <- which.max(pt$DPT)
-  if(sce$Sorted.Cell.Type[rc_min] %in% base_condition) {
+  if(sce$Condition[rc_min] %in% base_condition) {
     rc <- rc_min
     print('Root cell assigned.')
-  } else if (sce$Sorted.Cell.Type[rc_max] %in% base_condition) {
+  } else if (sce$Condition[rc_max] %in% base_condition) {
     rc <- rc_max
     print('Root cell assigned.')
   } else {
     print('Unstimulated cell is not at an extreme. Using DPT fit of only the extreme conditions to identify root cell before applying to whole data.')
-    sce_temp <- sce[,sce$Sorted.Cell.Type %in% c(base_condition,stim_condition)]
+    sce_temp <- sce[,sce$Condition %in% c(base_condition,stim_condition)]
     pcs <- prcomp(t(as.matrix(exprs(sce_temp))), scale=TRUE)
-    ts <- Transitions(data=pcs$x[,c(1:50)], distance='euclidean')
+    require(Matrix)
+    dm <- DiffusionMap(data=pcs$x[,c(1:50)], distance='euclidean')
+    sigs <- optimal_sigma(dm)*2^0.5
+    ts <- Transitions(data=pcs$x[,c(1:50)], distance='euclidean', sigma=sigs)
     pt <- dpt(ts, branching=FALSE)
     rc_min <- which.min(pt$DPT)
     rc_max <- which.max(pt$DPT)
-    if(sce_temp$Sorted.Cell.Type[rc_min] %in% base_condition) {
+    if(sce_temp$Condition[rc_min] %in% base_condition) {
       rc <- rc_min
       print('Root cell assigned.')
-    } else if (sce_temp$Sorted.Cell.Type[rc_max] %in% base_condition) {
+    } else if (sce_temp$Condition[rc_max] %in% base_condition) {
       rc <- rc_max
       print('Root cell assigned.')
     }
@@ -277,10 +289,13 @@ quick_dpt <- function(sce, conditions, col, base_condition, stim_condition, pdf_
   
   ## now back to main analysis
   pcs <- prcomp(t(as.matrix(exprs(sce))), scale=TRUE)
-  ts <- Transitions(data=pcs$x[,c(1:50)], distance='euclidean')
+  require(Matrix)
+  dm <- DiffusionMap(data=pcs$x[,c(1:50)], distance='euclidean')
+  sigs <- optimal_sigma(dm)*2^0.5
+  ts <- Transitions(data=pcs$x[,c(1:50)], distance='euclidean', sigma=sigs)
   pt <- dpt(ts, branching=FALSE, root=rc)
   
-  col_cat=factor(sce$Sorted.Cell.Type,levels=conditions)
+  col_cat=factor(sce$Condition,levels=conditions)
   y <- plot_dpt_ACR_all_colcat(ts=ts, pt=pt, branches=c(1L), path_col=c('black'),
                                col_cat=col_cat,
                                cat_cols=col,
@@ -303,10 +318,12 @@ plot_resid <- function(sceset, mod, spline_mat, gene_symbol, conditions,
                               mylevels=c('N4 3h', 'N4 6h', 'T4 6h', 'G4 6h'),
                               mylevels2=c('N4', 'T4', 'G4'),
                               cols=c('red', 'green3', 'blue')){
-  genen <- rownames(fData(sceset))[fData(sceset)$symbol %in% gene_symbol]
-  cellinds <- which(pData(sceset)$Sorted.Cell.Type %in% conditions)
+  fdat <- rowData(sceset)
+  rownames(fdat) <- rowNames(sceset)
+  genen <- rownames(fdat)[fdat$symbol %in% gene_symbol]
+  cellinds <- which(colData(sceset)$Condition %in% conditions)
   df <- data.frame(Y=exprs(sceset)[genen,cellinds],
-                   Cond=factor(pData(sceset[,cellinds])$Sorted.Cell.Type, levels=mylevels))
+                   Cond=factor(colData(sceset[,cellinds])$Condition, levels=mylevels))
   df$Cond2 <- unlist(lapply(strsplit(as.character(df$Cond), ' '), function(x){x[1]}))
   spline_mat <- spline_mat[cellinds,]
   fo <- as.formula(paste0("Y~", mod))

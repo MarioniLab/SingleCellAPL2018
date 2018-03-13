@@ -1,4 +1,3 @@
 # scRNAseq QC
 
-QC was performed using the following RMD script.  
-Of note, this will need to be modified to be consistent with the ArrayExpress data structure and phenotypic data columns.
+Perform QC on E-MTAB-6051 data using this RMD file.

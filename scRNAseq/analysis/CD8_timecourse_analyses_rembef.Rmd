@@ -10,7 +10,7 @@ knitr::opts_chunk$set(echo = TRUE)
 knitr::opts_knit$set(root.dir = '~/Documents/Post_doc/Git/SingleCellAPL2018/scRNAseq/')
 ```
 
-This script runs through analyses of the timecourse data from a single-cell sequencing experiment looking at early activation of CD8+ T cells - this data was collected from an experiment run on 261016.
+This script runs through analyses of the timecourse data from a single-cell sequencing experiment looking at early activation of CD8+ T cells - this data was collected from an experiment run on 261016. Here we are using the removeBatchEffect function from limma instead of ComBat to test whether there are any differences.
 
 First we'll load the data and filter uninformative genes.
 
@@ -69,11 +69,11 @@ plot_splitsce(sce)
 It is very hard to say whether there is a batch effect. However, we will be cautious and remove any residual effect.  Then we will narrow ourselves to the appropriate time-course samples.
 
 ```{r}
-library(sva)
+library(limma)
 mod <- model.matrix(~factor(as.character(sce$Condition)))
-combat_sce <- ComBat(dat=exprs(sce), batch=sce$Sorting.Plate,
-                     mod=mod, par.prior=TRUE, prior.plots=FALSE)
-exprs(sce) <- combat_sce
+rbe_sce <- removeBatchEffect(x=exprs(sce), batch=sce$Sorting.Plate,
+                     design=mod)
+exprs(sce) <- rbe_sce
 sce <- sce[, sce$Condition %in% c('unstimulated', 'N4_1h', 'N4_3h', 'N4_6h')]
 
 cond <- as.character(sce$Condition)
@@ -113,11 +113,11 @@ cols[cols %in% '0h'] <- 'grey'
 plot(pcs$x[,1], pcs$x[,2], xlab='PC1', ylab='PC2', col=cols, pch=16, cex.lab=1.2)
 legend('topright', legend=c('0h', '1h', '3h', '6h'), fill=c('grey', 'gold', 'orange', 'red'), bty='n')
 
-pdf('data/PCs_CBT_TC_spikenorm_filt05.pdf', height=5, width=3.5)
-par(mgp=c(2,1,0), bty='l')
-plot(pcs$x[,1], pcs$x[,2], xlab='PC1', ylab='PC2', col=cols, pch=16, cex.lab=1.2, las=1)
-legend('topright', legend=c('0h', '1h', '3h', '6h'), fill=c('grey', 'gold', 'orange', 'red'), bty='n')
-dev.off()
+# pdf('data/PCs_CBT_TC_spikenorm_filt05.pdf', height=5, width=3.5)
+# par(mgp=c(2,1,0), bty='l')
+# plot(pcs$x[,1], pcs$x[,2], xlab='PC1', ylab='PC2', col=cols, pch=16, cex.lab=1.2, las=1)
+# legend('topright', legend=c('0h', '1h', '3h', '6h'), fill=c('grey', 'gold', 'orange', 'red'), bty='n')
+# dev.off()
 
 ```
 
@@ -153,9 +153,9 @@ library(destiny)
 resTC <- quick_dpt(sce, conditions=c('0h', '1h', '3h', '6h'), col=c('grey', 'gold', 'orange', 'red'), base_condition='0h', stim_condition='6h')
 
 resTC[[1]]
-pdf('data/DPT_CBT_TC_spikenorm_filt05.pdf', height=3, width=3.6)
-resTC[[1]]
-dev.off()
+# pdf('data/DPT_CBT_TC_spikenorm_filt05.pdf', height=3, width=3.6)
+# resTC[[1]]
+# dev.off()
 
 ```
 
@@ -165,9 +165,9 @@ How are the cells distributed across pseudotime?
 hist(resTC$pt$DPT, breaks=30, xlab='Pseudotime', col='dodgerblue', main='')
 plot(c(1:nrow(resTC$pt)), resTC$pt$DPT[order(resTC$pt$DPT)], xlab='Ordered Cells', ylab='Pseudotime')
 
-pdf('data/DPT_CBT_TC_spikenorm_filt05_histogram.pdf', height=5, width=4)
-hist(resTC$pt$DPT, breaks=30, xlab='Pseudotime', col='dodgerblue', main='', las=1)
-dev.off()
+# pdf('data/DPT_CBT_TC_spikenorm_filt05_histogram.pdf', height=5, width=4)
+# hist(resTC$pt$DPT, breaks=30, xlab='Pseudotime', col='dodgerblue', main='', las=1)
+# dev.off()
 ```
 
 There appear to be 3 main clusters.  Let's assign the cells into these clusters.
@@ -180,11 +180,11 @@ plot(c(1:nrow(resTC$pt)), resTC$pt$DPT[order(resTC$pt$DPT)], xlab='Ordered Cells
      col=c('darkgrey', 'lightslateblue', 'slateblue4')[clusts[order(resTC$pt$DPT)]])
 legend('topleft', legend=c('resting', 'early activation', 'late activation'), fill=c('darkgrey', 'lightslateblue', 'slateblue4'), bty='n')
 
-pdf('data/DPT_CBT_TC_spikenorm_filt05_cdf.pdf', height=5, width=4)
-plot(c(1:nrow(resTC$pt)), resTC$pt$DPT[order(resTC$pt$DPT)], xlab='Ordered Cells', ylab='Pseudotime',
-     col=c('darkgrey', 'lightslateblue', 'slateblue4')[clusts[order(resTC$pt$DPT)]], las=1)
-legend('topleft', legend=c('resting', 'early activation', 'late activation'), fill=c('darkgrey', 'lightslateblue', 'slateblue4'), bty='n')
-dev.off()
+# pdf('data/DPT_CBT_TC_spikenorm_filt05_cdf.pdf', height=5, width=4)
+# plot(c(1:nrow(resTC$pt)), resTC$pt$DPT[order(resTC$pt$DPT)], xlab='Ordered Cells', ylab='Pseudotime',
+#      col=c('darkgrey', 'lightslateblue', 'slateblue4')[clusts[order(resTC$pt$DPT)]], las=1)
+# legend('topleft', legend=c('resting', 'early activation', 'late activation'), fill=c('darkgrey', 'lightslateblue', 'slateblue4'), bty='n')
+# dev.off()
 
 col_cat <- c('resting', 'early activation', 'late activation')[as.numeric(clusts)]
 col_cat <- factor(col_cat, levels=c('resting', 'early activation', 'late activation'))
@@ -195,13 +195,13 @@ plot_dpt_ACR_all_colcat(ts=resTC$ts, pt=resTC$pt, branches=c(1L), path_col=c('bl
                         x = 1L, y = 2L, w_width = 0.4)
 
 
-pdf('data/DPT_CBT_TC_spikenorm_filt05_clusters.pdf', height=3, width=4)
-set.seed(100)
-plot_dpt_ACR_all_colcat(ts=resTC$ts, pt=resTC$pt, branches=c(1L), path_col=c('black'),
-                        col_cat = col_cat, cat_cols=c('darkgrey', 'lightslateblue', 'slateblue4'), 
-                        col_name='Clusters',
-                        x = 1L, y = 2L, w_width = 0.4)
-dev.off()
+# pdf('data/DPT_CBT_TC_spikenorm_filt05_clusters.pdf', height=3, width=4)
+# set.seed(100)
+# plot_dpt_ACR_all_colcat(ts=resTC$ts, pt=resTC$pt, branches=c(1L), path_col=c('black'),
+#                         col_cat = col_cat, cat_cols=c('darkgrey', 'lightslateblue', 'slateblue4'), 
+#                         col_name='Clusters',
+#                         x = 1L, y = 2L, w_width = 0.4)
+# dev.off()
 
 
 
@@ -237,7 +237,7 @@ bestB1unique <- data.frame(topTags(res1unique, n=nrow(z_s)))
 bestB1unique$symbol <- as.character(fdat[rownames(bestB1unique),'symbol'])
 head(bestB1unique, 20)
 
-write.table(bestB1unique, 'data/DPT_CBT_TC_spikenorm_filt05_earlyactivation_cluster_vrestingandlate.txt', sep='\t', quote=F)
+# write.table(bestB1unique, 'data/DPT_CBT_TC_spikenorm_filt05_earlyactivation_cluster_vrestingandlate.txt', sep='\t', quote=F)
 
 ```
 
@@ -277,24 +277,24 @@ lbls <- paste(lbls, pct) # add percents to labels
 lbls <- paste(lbls,"%",sep="") # ad % to labels 
 pie(slices,labels = lbls, col=c('dodgerblue', 'grey'), main='in tested gene list')
 
-pdf('data/DPT_CBT_TC_spikenorm_filt05_cluster2_TFs_piecharts.pdf', height=3, width=6)
-par(mfrow=c(2,1), mgp=c(2,0.5,0), mar=c(1,4,2,2))
-slices <- c(length(which(rowData(N41hHM)$TF)), 
-            nrow(N41hHM)-length(which(rowData(N41hHM)$TF)))
-lbls <- c("TF", "not TF")
-pct <- round(slices/sum(slices)*100)
-lbls <- paste(lbls, pct) # add percents to labels 
-lbls <- paste(lbls,"%",sep="") # ad % to labels 
-pie(slices,labels = lbls, col=c('dodgerblue', 'grey'), main='uniquely up in early activation')
-
-slices <- c(length(which(rowData(sce)$TF)), 
-            nrow(sce)-length(which(rowData(sce)$TF)))
-lbls <- c("TF", "not TF")
-pct <- round(slices/sum(slices)*100)
-lbls <- paste(lbls, pct) # add percents to labels 
-lbls <- paste(lbls,"%",sep="") # ad % to labels 
-pie(slices,labels = lbls, col=c('dodgerblue', 'grey'), main='in tested gene list')
-dev.off()
+# pdf('data/DPT_CBT_TC_spikenorm_filt05_cluster2_TFs_piecharts.pdf', height=3, width=6)
+# par(mfrow=c(2,1), mgp=c(2,0.5,0), mar=c(1,4,2,2))
+# slices <- c(length(which(rowData(N41hHM)$TF)), 
+#             nrow(N41hHM)-length(which(rowData(N41hHM)$TF)))
+# lbls <- c("TF", "not TF")
+# pct <- round(slices/sum(slices)*100)
+# lbls <- paste(lbls, pct) # add percents to labels 
+# lbls <- paste(lbls,"%",sep="") # ad % to labels 
+# pie(slices,labels = lbls, col=c('dodgerblue', 'grey'), main='uniquely up in early activation')
+# 
+# slices <- c(length(which(rowData(sce)$TF)), 
+#             nrow(sce)-length(which(rowData(sce)$TF)))
+# lbls <- c("TF", "not TF")
+# pct <- round(slices/sum(slices)*100)
+# lbls <- paste(lbls, pct) # add percents to labels 
+# lbls <- paste(lbls,"%",sep="") # ad % to labels 
+# pie(slices,labels = lbls, col=c('dodgerblue', 'grey'), main='in tested gene list')
+# dev.off()
 ```
 
 And now we'll make a heatmap of the top 20 genes with TF annotation.
@@ -337,18 +337,18 @@ pheatmap(exprs(N41hHM)[,order(resTC$pt$DPT)],
          annotation_names_col=FALSE,
          labels_row=rowData(N41hHM)$symbol, labels_col='', color=hmcol, cexRow=0.8)
 
-pdf('data/DPT_CBT_TC_spikenorm_filt05_cluster2_TFs_heatmap.pdf', width=5, height=4)
-pheatmap(exprs(N41hHM)[,order(resTC$pt$DPT)], 
-         annotation_col=cols_df[order(resTC$pt$DPT), ], 
-         cluster_rows=TRUE, cluster_cols=FALSE,
-         clustering_distance_rows='correlation',
-         annotation_row=transcription_reg,
-         legend=TRUE,
-         annotation_colors=annot_col,
-         annotation_names_row=FALSE,
-         annotation_names_col=FALSE,
-         labels_row=rowData(N41hHM)$symbol, labels_col='', color=hmcol, cexRow=0.8)
-dev.off()
+# pdf('data/DPT_CBT_TC_spikenorm_filt05_cluster2_TFs_heatmap.pdf', width=5, height=4)
+# pheatmap(exprs(N41hHM)[,order(resTC$pt$DPT)], 
+#          annotation_col=cols_df[order(resTC$pt$DPT), ], 
+#          cluster_rows=TRUE, cluster_cols=FALSE,
+#          clustering_distance_rows='correlation',
+#          annotation_row=transcription_reg,
+#          legend=TRUE,
+#          annotation_colors=annot_col,
+#          annotation_names_row=FALSE,
+#          annotation_names_col=FALSE,
+#          labels_row=rowData(N41hHM)$symbol, labels_col='', color=hmcol, cexRow=0.8)
+# dev.off()
 ```
 
 And finally we'll plot out some of our favourite genes.
@@ -376,14 +376,14 @@ for(i in 1:length(genes)){
             cols=c('grey', 'gold', 'orange', 'red'))
 }  
 
-pdf('data/DPT_CBT_TC_spikenorm_filt05_cluster2_TFs_genes.pdf', height=5, width=4)
-par(mfrow=c(2,2), mgp=c(1.5,0.5,0), mar=c(3,3.5,0.2,0.2), bty='l')
-for(i in 1:length(genes)){
-  box_plot2(genes[i], sceset=sce, 
-            split_facs=c('0h', '1h', '3h', '6h'), 
-            cols=c('grey', 'gold', 'orange', 'red'))
-}  
-dev.off()
+# pdf('data/DPT_CBT_TC_spikenorm_filt05_cluster2_TFs_genes.pdf', height=5, width=4)
+# par(mfrow=c(2,2), mgp=c(1.5,0.5,0), mar=c(3,3.5,0.2,0.2), bty='l')
+# for(i in 1:length(genes)){
+#   box_plot2(genes[i], sceset=sce, 
+#             split_facs=c('0h', '1h', '3h', '6h'), 
+#             cols=c('grey', 'gold', 'orange', 'red'))
+# }  
+# dev.off()
 
 
 ```
@@ -460,24 +460,24 @@ barplot(GOs20[[1]]$enrich, horiz=TRUE, beside=TRUE, main='early activation clust
         col=c('lightslateblue'), las=1, xlab=expression(paste("-log"[10], " adjusted p-value x direction of regulation")),
         names.arg=GOs20[[1]]$Term, cex.names=0.8)
 
-pdf('data/DPT_CBT_TC_spikenorm_filt05_cluster2_GO20.pdf', height=5, width=8)
-par(mar=c(5.1,25.1,2.1,2.1), mgp=c(2,1,0))
-barplot(GOs20[[1]]$enrich, horiz=TRUE, beside=TRUE, main='early activation cluster',
-        col=c('lightslateblue'), las=1, xlab=expression(paste("-log"[10], " adjusted p-value")),
-        names.arg=GOs20[[1]]$Term, cex.names=0.8)
-dev.off()
+# pdf('data/DPT_CBT_TC_spikenorm_filt05_cluster2_GO20.pdf', height=5, width=8)
+# par(mar=c(5.1,25.1,2.1,2.1), mgp=c(2,1,0))
+# barplot(GOs20[[1]]$enrich, horiz=TRUE, beside=TRUE, main='early activation cluster',
+#         col=c('lightslateblue'), las=1, xlab=expression(paste("-log"[10], " adjusted p-value")),
+#         names.arg=GOs20[[1]]$Term, cex.names=0.8)
+# dev.off()
 
 par(mar=c(5.1,22.1,2.1,2.1), mgp=c(2,1,0))
 barplot(GOs20[[2]]$enrich, horiz=TRUE, beside=TRUE, main='late activation cluster',
         col=c('slateblue4'), las=1, xlab=expression(paste("-log"[10], " adjusted p-value x direction of regulation")),
         names.arg=GOs20[[2]]$Term, cex.names=0.8)
 
-pdf('data/DPT_CBT_TC_spikenorm_filt05_cluster3_GO20.pdf', height=5, width=8)
-par(mar=c(5.1,25.1,2.1,2.1), mgp=c(2,1,0))
-barplot(GOs20[[2]]$enrich, horiz=TRUE, beside=TRUE, main='late activation cluster',
-        col=c('slateblue4'), las=1, xlab=expression(paste("-log"[10], " adjusted p-value")),
-        names.arg=GOs20[[2]]$Term, cex.names=0.8)
-dev.off()
+# pdf('DPT_CBT_TC_spikenorm_filt05_cluster3_GO20.pdf', height=5, width=8)
+# par(mar=c(5.1,25.1,2.1,2.1), mgp=c(2,1,0))
+# barplot(GOs20[[2]]$enrich, horiz=TRUE, beside=TRUE, main='late activation cluster',
+#         col=c('slateblue4'), las=1, xlab=expression(paste("-log"[10], " adjusted p-value")),
+#         names.arg=GOs20[[2]]$Term, cex.names=0.8)
+# dev.off()
 
 ```
 
