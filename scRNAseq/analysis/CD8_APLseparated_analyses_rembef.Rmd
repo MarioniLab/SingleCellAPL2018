@@ -12,6 +12,8 @@ knitr::opts_knit$set(root.dir = '~/Documents/Post_doc/Git/SingleCellAPL2018/scRN
 
 This script runs through analyses of the altered affinity ligand stimulation data from a single-cell sequencing experiment looking at early activation of CD8+ T cells - this data was collected from experiments run on 20160727 and 20161026.  These analyses treat each dataset separately.
 
+In contrast to the original file, this uses removeBatchEffect from limma instead of ComBat from sva to test whether there is a difference.
+
 First we'll load the data and filter uninformative genes.
 
 ```{r}
@@ -51,11 +53,11 @@ sce2 <- normalize(sce2, exprs_values='counts', return_norm_as_exprs=TRUE, log_ex
 We know from looking at the time-course analysis that we need to batch correct run 2, so let's do that.
 
 ```{r}
-library(sva)
+library(limma)
 mod <- model.matrix(~factor(as.character(sce2$Condition)))
-combat_sce <- ComBat(dat=exprs(sce2), batch=colData(sce2)$Sorting.Plate,
-                     mod=mod, par.prior=TRUE, prior.plots=FALSE)
-exprs(sce2) <- combat_sce
+rbe_sce <- removeBatchEffect(x=exprs(sce2), batch=sce2$Sorting.Plate,
+                     design=mod)
+exprs(sce2) <- rbe_sce
 ```
 
 Let's check if we need to do any plate-based batch correction for run1.
@@ -90,9 +92,9 @@ It looks like there could be some subtle effects visible in N4 and G4 categories
 ```{r}
 sce1$Sorting.Plate <- factor(as.character(sce1$Sorting.Plate))
 mod <- model.matrix(~factor(as.character(sce1$Condition)))
-combat_sce <- ComBat(dat=exprs(sce1), batch=colData(sce1)$Sorting.Plate,
-                     mod=mod, par.prior=TRUE, prior.plots=FALSE)
-exprs(sce1) <- combat_sce
+rbe_sce <- removeBatchEffect(x=exprs(sce1), batch=sce1$Sorting.Plate,
+                     design=mod)
+exprs(sce1) <- rbe_sce
 ```
 
 Now we have sce1 and sce2 normalised and batch-corrected.  We'll remove spikes so they do not interfere with downstream analyses.
@@ -179,13 +181,13 @@ boxes_plot(sce2, 'Rpl39')
 boxes_plot(sce1, 'Slc34a2', mylevels=c('N4_6h', 'T4_6h', 'G4_6h', 'NP68_6h'))
 boxes_plot(sce1, 'Rpl39', mylevels=c('N4_6h', 'T4_6h', 'G4_6h', 'NP68_6h'))
 
-pdf('data/Control_genes_spikenorm_filt05_boxplot.pdf', height=8, width=8)
-par(mfrow=c(2,2), mgp=c(2,0.5,0), mar=c(5.1,4.1,1.5,0.5), bty='l')
-boxes_plot(sce2, 'Slc34a2')
-boxes_plot(sce2, 'Rpl39')
-boxes_plot(sce1, 'Slc34a2', mylevels=c('N4_6h', 'T4_6h', 'G4_6h', 'NP68_6h'))
-boxes_plot(sce1, 'Rpl39', mylevels=c('N4_6h', 'T4_6h', 'G4_6h', 'NP68_6h'))
-dev.off()
+# pdf('data/Control_genes_spikenorm_filt05_boxplot.pdf', height=8, width=8)
+# par(mfrow=c(2,2), mgp=c(2,0.5,0), mar=c(5.1,4.1,1.5,0.5), bty='l')
+# boxes_plot(sce2, 'Slc34a2')
+# boxes_plot(sce2, 'Rpl39')
+# boxes_plot(sce1, 'Slc34a2', mylevels=c('N4_6h', 'T4_6h', 'G4_6h', 'NP68_6h'))
+# boxes_plot(sce1, 'Rpl39', mylevels=c('N4_6h', 'T4_6h', 'G4_6h', 'NP68_6h'))
+# dev.off()
 ```
 
 It looks like Slc34a2 would be the best control gene. Rpl39 is not bad, but it is associated with condition to a small extent in the second dataset. 
@@ -239,30 +241,30 @@ protein_violin_plot('CD25', sceset=sce2,
             cols=c('red', 'green3', 'blue', 'grey40'))
 
 
-pdf(paste0('data/CD69_protein_APL1_spikenorm_filt05_violinplot.pdf'), height=2.5, width=2)
-protein_violin_plot('CD69', sceset=sce1, 
-            split_facs=c('N4', 'T4', 'G4', 'NP68'), 
-            cols=c('red', 'green3', 'blue', 'grey40'))
-dev.off()
-
-pdf(paste0('data/CD69_protein_APL2_spikenorm_filt05_violinplot.pdf'), height=2.5, width=2)
-protein_violin_plot('CD69', sceset=sce2, 
-            split_facs=c('N4 6h', 'T4 6h', 'G4 6h', 'NP68 6h'), 
-            cols=c('red', 'green3', 'blue', 'grey40'))
-dev.off()
-
-pdf(paste0('data/CD25_protein_APL1_spikenorm_filt05_violinplot.pdf'), height=2.5, width=2)
-protein_violin_plot('CD25', sceset=sce1, 
-            split_facs=c('N4', 'T4', 'G4', 'NP68'), 
-            cols=c('red', 'green3', 'blue', 'grey40'))
-dev.off()
-
-pdf(paste0('data/CD25_protein_APL2_spikenorm_filt05_violinplot.pdf'), height=2.5, width=2)
-protein_violin_plot('CD25', sceset=sce2, 
-            split_facs=c('N4 6h', 'T4 6h', 'G4 6h', 'NP68 6h'), 
-            cols=c('red', 'green3', 'blue', 'grey40'))
-dev.off()
-
+# pdf(paste0('data/CD69_protein_APL1_spikenorm_filt05_violinplot.pdf'), height=2.5, width=2)
+# protein_violin_plot('CD69', sceset=sce1, 
+#             split_facs=c('N4', 'T4', 'G4', 'NP68'), 
+#             cols=c('red', 'green3', 'blue', 'grey40'))
+# dev.off()
+# 
+# pdf(paste0('data/CD69_protein_APL2_spikenorm_filt05_violinplot.pdf'), height=2.5, width=2)
+# protein_violin_plot('CD69', sceset=sce2, 
+#             split_facs=c('N4 6h', 'T4 6h', 'G4 6h', 'NP68 6h'), 
+#             cols=c('red', 'green3', 'blue', 'grey40'))
+# dev.off()
+# 
+# pdf(paste0('data/CD25_protein_APL1_spikenorm_filt05_violinplot.pdf'), height=2.5, width=2)
+# protein_violin_plot('CD25', sceset=sce1, 
+#             split_facs=c('N4', 'T4', 'G4', 'NP68'), 
+#             cols=c('red', 'green3', 'blue', 'grey40'))
+# dev.off()
+# 
+# pdf(paste0('data/CD25_protein_APL2_spikenorm_filt05_violinplot.pdf'), height=2.5, width=2)
+# protein_violin_plot('CD25', sceset=sce2, 
+#             split_facs=c('N4 6h', 'T4 6h', 'G4 6h', 'NP68 6h'), 
+#             cols=c('red', 'green3', 'blue', 'grey40'))
+# dev.off()
+# 
 
 ```
 
