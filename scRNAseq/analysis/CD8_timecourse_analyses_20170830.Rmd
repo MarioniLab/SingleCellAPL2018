@@ -415,11 +415,11 @@ xx <- as.list(org.Mm.egENSEMBL2EG)
 # lens <- split(len_df, len_df$gene)
 # len_vec2 <- lapply(lens, function(x) {max(x$length)})
 
-GO1 <- goana(res1, species="Mm", geneid=xx[rownames(res1)], FDR=0.05, trend=TRUE)
+GO1 <- goana(res1, species="Mm", geneid=xx[rownames(res1)], FDR=0.05, trend=FALSE)
 GO1tab <- topGO(GO1, ont="BP", number=Inf)
 head(GO1tab)
 
-GO2 <- goana(res2, species="Mm", geneid=xx[rownames(res2)], FDR=0.05, trend=TRUE)
+GO2 <- goana(res2, species="Mm", geneid=xx[rownames(res2)], FDR=0.05, trend=FALSE)
 GO2tab <- topGO(GO2, ont="BP", number=Inf)
 head(GO2tab)
 ```

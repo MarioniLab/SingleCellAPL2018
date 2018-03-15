@@ -313,23 +313,3 @@ quick_dpt <- function(sce, conditions, col, base_condition, stim_condition, pdf_
 
 
 
-
-plot_resid <- function(sceset, mod, spline_mat, gene_symbol, conditions, 
-                              mylevels=c('N4 3h', 'N4 6h', 'T4 6h', 'G4 6h'),
-                              mylevels2=c('N4', 'T4', 'G4'),
-                              cols=c('red', 'green3', 'blue')){
-  fdat <- rowData(sceset)
-  rownames(fdat) <- rowNames(sceset)
-  genen <- rownames(fdat)[fdat$symbol %in% gene_symbol]
-  cellinds <- which(colData(sceset)$Condition %in% conditions)
-  df <- data.frame(Y=exprs(sceset)[genen,cellinds],
-                   Cond=factor(colData(sceset[,cellinds])$Condition, levels=mylevels))
-  df$Cond2 <- unlist(lapply(strsplit(as.character(df$Cond), ' '), function(x){x[1]}))
-  spline_mat <- spline_mat[cellinds,]
-  fo <- as.formula(paste0("Y~", mod))
-  resid <- lm(fo)$residuals
-  facs <- split(resid, factor(df$Cond2, levels=mylevels2))
-  boxplot(facs, ylab=bquote('residual log'[2] ~ .(gene_symbol) ~ 'expression'), outline=FALSE)
-  stripchart(facs, method='jitter', vertical=TRUE, pch=20, add=T, col=cols)
-}
-

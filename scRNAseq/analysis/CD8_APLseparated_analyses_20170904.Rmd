@@ -241,25 +241,25 @@ protein_violin_plot('CD25', sceset=sce2,
 
 pdf(paste0('data/CD69_protein_APL1_spikenorm_filt05_violinplot.pdf'), height=2.5, width=2)
 protein_violin_plot('CD69', sceset=sce1, 
-            split_facs=c('N4', 'T4', 'G4', 'NP68'), 
+            split_facs=c('N4_6h', 'T4_6h', 'G4_6h', 'NP68_6h'), 
             cols=c('red', 'green3', 'blue', 'grey40'))
 dev.off()
 
 pdf(paste0('data/CD69_protein_APL2_spikenorm_filt05_violinplot.pdf'), height=2.5, width=2)
 protein_violin_plot('CD69', sceset=sce2, 
-            split_facs=c('N4 6h', 'T4 6h', 'G4 6h', 'NP68 6h'), 
+            split_facs=c('N4_6h', 'T4_6h', 'G4_6h', 'NP68_6h'), 
             cols=c('red', 'green3', 'blue', 'grey40'))
 dev.off()
 
 pdf(paste0('data/CD25_protein_APL1_spikenorm_filt05_violinplot.pdf'), height=2.5, width=2)
 protein_violin_plot('CD25', sceset=sce1, 
-            split_facs=c('N4', 'T4', 'G4', 'NP68'), 
+            split_facs=c('N4_6h', 'T4_6h', 'G4_6h', 'NP68_6h'), 
             cols=c('red', 'green3', 'blue', 'grey40'))
 dev.off()
 
 pdf(paste0('data/CD25_protein_APL2_spikenorm_filt05_violinplot.pdf'), height=2.5, width=2)
 protein_violin_plot('CD25', sceset=sce2, 
-            split_facs=c('N4 6h', 'T4 6h', 'G4 6h', 'NP68 6h'), 
+            split_facs=c('N4_6h', 'T4_6h', 'G4_6h', 'NP68_6h'), 
             cols=c('red', 'green3', 'blue', 'grey40'))
 dev.off()
 
