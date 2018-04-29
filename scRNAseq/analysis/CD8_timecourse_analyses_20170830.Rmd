@@ -12,6 +12,8 @@ knitr::opts_knit$set(root.dir = '~/Documents/Post_doc/Git/SingleCellAPL2018/scRN
 
 This script runs through analyses of the timecourse data from a single-cell sequencing experiment looking at early activation of CD8+ T cells - this data was collected from an experiment run on 261016.
 
+# Loading the data and filtering genes
+
 First we'll load the data and filter uninformative genes.
 
 ```{r}
@@ -37,6 +39,8 @@ sce <- computeSpikeFactors(sce, general.use=TRUE)
 sce <- normalize(sce, exprs_values='counts', return_norm_as_exprs=TRUE, log_exprs_offset=1)
 
 ```
+
+# Batch effect correction
 
 Check whether there is a batch effect between plates of cells. We will assume these effects are entirely technical in processing the cells and therefore keep the spike-in genes in the dataset.
 
@@ -95,7 +99,11 @@ legend('topright', legend=c('Plate 1', 'Plate 2', 'Plate 3', 'Plate 4'), fill=c(
 
 ```
 
-This looks pretty good now.  So we can move on to the analyses.  First, we'll remove the spike-in genes as these are not longer needed, and we don't want them dictating any ordering of the cells.
+This looks pretty good now.  So we can move on to the analyses.  
+
+# PCA
+
+First, we'll remove the spike-in genes as these are not longer needed, and we don't want them dictating any ordering of the cells.
 
 ```{r}
 sce <- sce[!isSpike(sce),]
@@ -121,6 +129,8 @@ dev.off()
 
 ```
 
+# Protein expression 
+
 Now let's look at protein expression in each condition from the cells we sequenced.
 
 ```{r}
@@ -144,6 +154,7 @@ for(i in 1:length(proteins)){
 
 ```
 
+# Pseudotime analysis
 
 And we can run diffusion pseudotime analysis.  First we must find the root cell as the most extreme cell that is in the "unstimulated" category.  
 
@@ -169,6 +180,8 @@ pdf('data/DPT_CBT_TC_spikenorm_filt05_histogram.pdf', height=5, width=4)
 hist(resTC$pt$DPT, breaks=30, xlab='Pseudotime', col='dodgerblue', main='', las=1)
 dev.off()
 ```
+
+## Clustering in pseudotime
 
 There appear to be 3 main clusters.  Let's assign the cells into these clusters.
 
@@ -209,9 +222,13 @@ dev.off()
 
 ```
 
+## Differential expression in pseudotime
+
 Now we can perform a differential expression analysis between them.  Of note, the association analysis is over-fit because pseudotime was defined using gene expression and the clusters were then defined along pseudotime.  However, we will perform the analysis just to see what is enriched in each cluster, without taking significance values too seriously.
 
-Let's first look at what goes up in the first activation cluster (early activation, cluster 2) compared to unstimulated (cluster 1).
+### Early activation v resting
+
+Let's first look at what goes up in the first activation cluster (early activation, cluster 2) compared to resting (cluster 1).
 
 ```{r}
 library(edgeR)
@@ -229,7 +246,11 @@ bestB1$symbol <- as.character(fdat[rownames(bestB1),'symbol'])
 head(bestB1)
 ```
 
-These genes are  differentially expressed in the first activated cluster (cluster 2). Are there any genes that are unique to this cluster?  Let's compare it to both the unstimulated (cluster 1) AND the most activated (cluster 3).
+These genes are  differentially expressed in the first activated cluster (cluster 2). 
+
+### Early activation v resting and late activation
+
+Are there any genes that are unique to this cluster?  Let's compare it to both the unstimulated (cluster 1) AND the most activated (cluster 3).
 
 ```{r}
 res1unique <- glmLRT(fit, contrast=c(-0.5,1,-0.5,0,0,0))
@@ -388,7 +409,9 @@ dev.off()
 
 ```
 
-Now, let's look at the most activated cluster (cluster 3) - how does it compare to unstimulated cells?
+### Late activation versus resting
+
+Now, let's look at the most activated cluster (cluster 3) - how does it compare to resting cells?
 
 ```{r}
 res2 <- glmLRT(fit, contrast=c(-1,0,1,0,0,0))
@@ -399,21 +422,12 @@ bestB2$symbol <- as.character(fdat[rownames(bestB2),'symbol'])
 head(bestB2)
 ```
 
-So let's look at gene set enrichment in cells in the early activation versus unstimulated and late activation versus unstimulated clusters.  We note that we are taking into account mean gene expression (a proxy for gene length) in this analysis as it is comparative between gene sets.
+So let's look at gene set enrichment in cells in the early activation versus resting and late activation versus resting clusters.  
 
 ```{r}
 library(limma)
 library(org.Mm.eg.db)
 xx <- as.list(org.Mm.egENSEMBL2EG)
-
-# ## use UCSC table downloaded 20170503 Ensembl gene annotation of mm10
-# anno <- read.table('~/Documents/Post_doc/Sync/Experiments/scRNA-seq/annotation_resources/mm10_ENSG/mm10_ensg_annotation_ucsc_20170503', header=T, comment.char = '', sep='\t')
-# len_vec <- abs(anno$txStart-anno$txEnd)
-# len_df <- data.frame(name=anno$name, length=len_vec, gene=anno$name2)
-# ## these are the transcript lengths but we need to get the gene lengths because we've dealt with genes in our analysis
-# ## we'll take the maximum transcript length for genes for which there are multiple transcripts
-# lens <- split(len_df, len_df$gene)
-# len_vec2 <- lapply(lens, function(x) {max(x$length)})
 
 GO1 <- goana(res1, species="Mm", geneid=xx[rownames(res1)], FDR=0.05, trend=FALSE)
 GO1tab <- topGO(GO1, ont="BP", number=Inf)
@@ -422,6 +436,7 @@ head(GO1tab)
 GO2 <- goana(res2, species="Mm", geneid=xx[rownames(res2)], FDR=0.05, trend=FALSE)
 GO2tab <- topGO(GO2, ont="BP", number=Inf)
 head(GO2tab)
+
 ```
 
 And now we make some plots of the top 20 enriched categories for visualisation.
@@ -430,9 +445,20 @@ And now we make some plots of the top 20 enriched categories for visualisation.
 
 GOs <- list(early=GO1tab, late=GO2tab)
 GOs <- lapply(GOs, function(x) {
-  adjp <- 0.05/nrow(x)
+  ps_list <- c(x$P.Up, x$P.Down)
+  ps_adj <- p.adjust(ps_list, method="fdr")
+  ps <- data.frame(ps_list, ps_adj)
+  ps <- ps[order(ps$ps_list),]
+  adjp <- max(which(ps$ps_adj < 0.05))
+  adjp <- ps$ps_list[adjp]
+  #adjp <- 0.05/nrow(x)
   return(x[(x$P.Up < adjp) | (x$P.Down < adjp),])
 })
+
+## write as tables
+write.table(GOs[[1]], 'data/DPT_CBT_TC_spikenorm_filt05_cluster2_GOsig.txt', quote=FALSE, sep='\t')
+write.table(GOs[[2]], 'data/DPT_CBT_TC_spikenorm_filt05_cluster3_GOsig.txt', quote=FALSE, sep='\t')
+
 
 for(i in 1:length(GOs)){
   enrich <- apply(GOs[[i]], 1, function(x){
@@ -446,6 +472,8 @@ for(i in 1:length(GOs)){
   GOs[[i]]$enrich <- enrich
 }
 
+
+
 ## and just plot out the top 20 for each
 
 GOs20 <- lapply(GOs, function(x) {
@@ -457,25 +485,25 @@ GOs20 <- lapply(GOs, function(x) {
 
 par(mar=c(5.1,22.1,2.1,2.1), mgp=c(2,1,0))
 barplot(GOs20[[1]]$enrich, horiz=TRUE, beside=TRUE, main='early activation cluster',
-        col=c('lightslateblue'), las=1, xlab=expression(paste("-log"[10], " adjusted p-value x direction of regulation")),
+        col=c('lightslateblue'), las=1, xlab=expression(paste("-log"[10], " p-value x direction of regulation")),
         names.arg=GOs20[[1]]$Term, cex.names=0.8)
 
 pdf('data/DPT_CBT_TC_spikenorm_filt05_cluster2_GO20.pdf', height=5, width=8)
 par(mar=c(5.1,25.1,2.1,2.1), mgp=c(2,1,0))
 barplot(GOs20[[1]]$enrich, horiz=TRUE, beside=TRUE, main='early activation cluster',
-        col=c('lightslateblue'), las=1, xlab=expression(paste("-log"[10], " adjusted p-value")),
+        col=c('lightslateblue'), las=1, xlab=expression(paste("-log"[10], " p-value")),
         names.arg=GOs20[[1]]$Term, cex.names=0.8)
 dev.off()
 
 par(mar=c(5.1,22.1,2.1,2.1), mgp=c(2,1,0))
 barplot(GOs20[[2]]$enrich, horiz=TRUE, beside=TRUE, main='late activation cluster',
-        col=c('slateblue4'), las=1, xlab=expression(paste("-log"[10], " adjusted p-value x direction of regulation")),
+        col=c('slateblue4'), las=1, xlab=expression(paste("-log"[10], " p-value x direction of regulation")),
         names.arg=GOs20[[2]]$Term, cex.names=0.8)
 
 pdf('data/DPT_CBT_TC_spikenorm_filt05_cluster3_GO20.pdf', height=5, width=8)
 par(mar=c(5.1,25.1,2.1,2.1), mgp=c(2,1,0))
 barplot(GOs20[[2]]$enrich, horiz=TRUE, beside=TRUE, main='late activation cluster',
-        col=c('slateblue4'), las=1, xlab=expression(paste("-log"[10], " adjusted p-value")),
+        col=c('slateblue4'), las=1, xlab=expression(paste("-log"[10], " p-value")),
         names.arg=GOs20[[2]]$Term, cex.names=0.8)
 dev.off()
 

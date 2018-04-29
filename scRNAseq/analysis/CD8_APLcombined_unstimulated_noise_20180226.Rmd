@@ -49,12 +49,14 @@ What are the highly variable genes?
 
 ```{r}
 
-sceunind <- sceunind[!isSpike(sceunind),]
+#sceunind <- sceunind[!isSpike(sceunind),]
 
 df <- data.frame(batch=as.character(sceunind$Sorting.Plate))
 mod <- model.matrix(~0+batch, data=df)
-alt.fit <- trendVar(sceunind, use.spikes=FALSE, design=mod, span=0.15) 
-alt.decomp <- decomposeVar(sceunind, alt.fit, design=mod)
+#alt.fit <- trendVar(sceunind, use.spikes=FALSE, design=mod, span=0.15) 
+alt.fit <- trendVar(sceunind, use.spikes=TRUE, design=mod, method='loess', parametric='true', span=0.6) 
+#alt.decomp <- decomposeVar(sceunind, alt.fit, design=mod)
+alt.decomp <- decomposeVar(sceunind, alt.fit, design=mod, get.spikes=FALSE)
 fdat <- rowData(sceunind)
 rownames(fdat) <- fdat$GeneID
 alt.decomp$symbol <- fdat[rownames(alt.decomp), 'symbol']
@@ -62,17 +64,24 @@ top.hvgs <- order(alt.decomp$bio, decreasing=TRUE)
 head(alt.decomp[top.hvgs,], 20)
 
 plot(alt.decomp$mean, alt.decomp$total, xlab="Mean log-expression", ylab="Variance")
+points(alt.decomp$mean[which(isSpike(sceunind))], alt.decomp$total[which(isSpike(sceunind))], col='red', pch=20)
 o <- order(alt.decomp$mean)
 lines(alt.decomp$mean[o], alt.decomp$tech[o], col="red", lwd=2)
 
 
 ```
 
-Ordering cells by decreasing biological variability reveals adhesion molecules in the top 5. Itgb2 is CD18, part of LFA-1, which is known to play a role in T cell activation.
+Ordering cells by decreasing biological variability reveals
 
-In addition, Fos is the only significantly highly variable gene.
+Top gene Dusp1 is a Mapk phosphatase - this could be interesting with respect to signalling initiation.
 
-Let's look at Fos and the LFA-1 components.
+Adhesion molecule Itgb2 is CD18, part of LFA-1, which is known to play a role in T cell activation.
+
+Cd6 is known to have a role in T cell costimulation
+
+Jun is part of AP-1 transcription factors.
+
+Let's look at the top 9 and particularly at LFA-1 components:
 
 ```{r}
 
@@ -92,10 +101,14 @@ expr_box_plot <- function(gene_symbol, sceset,
   boxplot(temp, outline=FALSE, add=T, col=rgb(0,0,0, alpha=0), axes=F)
 }
 
-par(mfrow=c(1,3), mgp=c(2,0.5,0), mar=c(6,3.5,1,0.2), bty='l', cex.lab=1.5, cex.axis=1)
+par(mfrow=c(3,3), mgp=c(2,0.5,0), mar=c(6,3.5,1,0.2), bty='l', cex.lab=1.5, cex.axis=1)
+for (i in c(1:9)){
+  expr_box_plot(as.character(alt.decomp[top.hvgs,'symbol'][i]), sceset=sce)
+}
+
+par(mfrow=c(1,2), mgp=c(2,0.5,0), mar=c(6,3.5,1,0.2), bty='l', cex.lab=1.5, cex.axis=1)
 expr_box_plot('Itgal', sceset=sce)
 expr_box_plot('Itgb2', sceset=sce)
-expr_box_plot('Fos', sceset=sce)
 
 pdf('data/APL_Unstim_LFA1exp.pdf', height=4, width=6)
 par(mfrow=c(1,2), mgp=c(2,0.5,0), mar=c(6,3.5,1,0.2), bty='l', cex.lab=1.5, cex.axis=1)
@@ -103,10 +116,6 @@ expr_box_plot('Itgal', sceset=sce)
 expr_box_plot('Itgb2', sceset=sce)
 dev.off()
 
-pdf('data/APL_Unstim_Fosexp.pdf', height=4, width=6)
-par(mfrow=c(1,2), mgp=c(2,0.5,0), mar=c(6,3.5,1,0.2), bty='l', cex.lab=1.5, cex.axis=1)
-expr_box_plot('Fos', sceset=sce)
-dev.off()
 ```
 
 # Examining the "progressive" unstimulated cells
@@ -340,6 +349,30 @@ dev.off()
 ## and a sanity check for code above
 boxplot(split(exprs(sce)[rownames(fdat[fdat$symbol %in% 'Cd69',]),unind], c('resting', 'early activation')[clusts_un]))
 
+```
+
+Finally, let's make the same heatmap but instead colour the side-bars by pseudotime and batch to get more of an overview.
+
+```{r}
+
+col_anno <- data.frame(pseudotime=resTC$pt$DPT[unind], batch=sceunind_var$Sorting.Plate)
+rownames(col_anno) <- colnames(sceunind_var)
+
+hmcol <- colorRampPalette(c('blue', 'white', 'red'))(200)
+
+pheatmap(exprs(sceunind_var), 
+         annotation_col=col_anno, 
+         show_rownames=FALSE, 
+         show_colnames=FALSE, 
+         color=hmcol)
+
+pdf('data/APL_TC_Unstim_HVG_heaptmap2.pdf', height=5, width=5)
+pheatmap(exprs(sceunind_var), 
+         annotation_col=col_anno, 
+         show_rownames=FALSE, 
+         show_colnames=FALSE, 
+         color=hmcol)
+dev.off()
 ```
 
 ```{r}

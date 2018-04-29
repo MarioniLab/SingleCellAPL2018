@@ -18,6 +18,10 @@ Each dataset was aligned with Subread and counted using featureCounts, keeping d
 
 Start with the first batch and read in data and annotation.
 
+# Batch 1
+
+## Reading in the data
+
 ```{r}
 library(gdata)
 library(scater)
@@ -81,6 +85,8 @@ rowData(sce1) <- fdat
 
 ```
 
+## QC metrics
+
 Now let's look at various QC metrics.  Due to this dataset having been initially analyzed in 2016, we've done this manually instead of using calculateQCMetrics from the scater package. 
 
 ```{r}
@@ -141,6 +147,7 @@ boxplot(split(num_genes_exp$num_genes_exp, num_genes_exp$condition), ylab='numbe
 colData(sce1)$num_genes <- num_genes_exp$num_genes_exp
 ```
 
+## Filter the data
 
 Now filter the data for outliers to remove bad cells.  We employ a threshold of 3 median absolute deviations for each parameter.  For library size and number of genes detected, we only filter low cells.  For percentages of ERCC spikes and mitochondrial genes, we filter out cells that are high as recommended in the scran vignette. We will additionally filter out cells with outlying high or low log-ratios of ERCC to non ERCC transcripts as several appeared severely outlying in the plot. 
 
@@ -156,6 +163,8 @@ outliers_ERCC <- isOutlier(log2(sce1$ERCC_sum)-log2(sce1$genic_sum), nmads=3, ty
 sce1 <- sce1[,!(libsize.drop | feature.drop | mito.drop | spike.drop | outliers_ERCC)]
 data.frame(ByLibSize=sum(libsize.drop), ByFeature=sum(feature.drop), ByMito=sum(mito.drop), BySpike=sum(spike.drop), ByAltSpike=sum(outliers_ERCC), Remaining=ncol(sce1))
 ```
+
+## Add feature data
 
 Now we add feature Data from UCSC mm10 ensGene database. I found this to be more complete than the org.Mm.eg.db database.
 
@@ -177,11 +186,15 @@ fdat$symbol <- name_map_simp[rownames(fdat), 'symbol']
 rowData(sce1) <- fdat
 ```
 
+## Save the data set
+
 And finally save the resulting SCEset.
 
 ```{r}
 saveRDS(sce1, file='data/sce_run1.rds')
 ```
+
+# Batch 2 - same process
 
 Now clear the slate and run the same process on sequencing run 2.  This second sequencing run was performed in two separate lanes on two separate dates (the same library pool was run both times).
 

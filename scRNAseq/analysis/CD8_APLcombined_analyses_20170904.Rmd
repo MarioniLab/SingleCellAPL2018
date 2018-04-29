@@ -411,12 +411,20 @@ GO2 <- goana(resG4, species="Mm", geneid=xx[rownames(resG4)], FDR=0.05, trend=FA
 GO2tab <- topGO(GO2, ont="BP", number=Inf)
 head(GO2tab)
 
-
 GOs <- list(T4=GO1tab, G4=GO2tab)
 GOs <- lapply(GOs, function(x) {
-  adjp <- 0.05/nrow(x)
+  ps_list <- c(x$P.Up, x$P.Down)
+  ps_adj <- p.adjust(ps_list, method="fdr")
+  ps <- data.frame(ps_list, ps_adj)
+  ps <- ps[order(ps$ps_list),]
+  adjp <- max(which(ps$ps_adj < 0.05))
+  adjp <- ps$ps_list[adjp]
+  #adjp <- 0.05/nrow(x)
   return(x[(x$P.Up < adjp) | (x$P.Down < adjp),])
 })
+
+write.table(GOs[[1]], 'data/DE_combrunAT_spikenorm_filt05_T4vN4_GOsig_controlCD69sp2.txt', quote=FALSE, sep='\t')
+write.table(GOs[[2]], 'data/DE_combrunAT_spikenorm_filt05_G4vN4_GOsig_controlCD69sp2.txt', quote=FALSE, sep='\t')
 
 for(i in 1:length(GOs)){
   enrich <- apply(GOs[[i]], 1, function(x){
@@ -445,10 +453,10 @@ GOs20 <- lapply(GOs, function(x) {
 
 par(mar=c(5.1,22.1,2.1,2.1), mgp=c(2,1,0))
 barplot(GOs20[[1]]$enrich, horiz=TRUE, beside=TRUE, main='T4 v N4 enrichment',
-        col=c('green3'), las=1, xlab=expression(paste("-log"[10], " adjusted p-value x DE direction")),
+        col=c('green3'), las=1, xlab=expression(paste("-log"[10], " p-value x DE direction")),
         names.arg=GOs20[[1]]$Term, cex.names=0.8)
 
-pdf('data/DE_combrunAT_spikenorm_filt05_T4vN4_GO20_controlCD69sp2.pdf', height=1.7, width=8)
+pdf('data/DE_combrunAT_spikenorm_filt05_T4vN4_GO20_controlCD69sp2.pdf', height=3, width=8)
 par(mar=c(4.1,22.1,2.1,2.1), mgp=c(2,1,0))
 barplot(GOs20[[1]]$enrich, horiz=TRUE, beside=TRUE, main='',
         col=c('green3'), las=1, xlab='',
@@ -457,10 +465,10 @@ dev.off()
 
 par(mar=c(5.1,22.1,2.1,2.1), mgp=c(2,1,0))
 barplot(GOs20[[2]]$enrich, horiz=TRUE, beside=TRUE, main='G4 v N4 enrichment',
-        col=c('blue'), las=1, xlab=expression(paste("-log"[10], " adjusted p-value x DE direction")),
+        col=c('blue'), las=1, xlab=expression(paste("-log"[10], " p-value x DE direction")),
         names.arg=GOs20[[2]]$Term, cex.names=0.8)
 
-pdf('data/DE_combrunAT_spikenorm_filt10_G4vN4_GO20_controlCD69sp2.pdf', height=2.8, width=8)
+pdf('data/DE_combrunAT_spikenorm_filt10_G4vN4_GO20_controlCD69sp2.pdf', height=5, width=8)
 par(mar=c(4.1,22.1,2.1,2.1), mgp=c(2,1,0))
 barplot(GOs20[[2]]$enrich, horiz=TRUE, beside=TRUE, main='',
         col=c('blue'), las=1, xlab='',
