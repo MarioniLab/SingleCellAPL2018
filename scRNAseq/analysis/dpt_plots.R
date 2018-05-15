@@ -251,12 +251,13 @@ quick_dpt <- function(sce, conditions, col, base_condition, stim_condition, pdf_
   ## factor of sqrt(2). To maintain compatibility with our old results, we have adjusted the sigmas by 
   ## this factor in our function below. 
   
-  library(destiny)
+  require(destiny)
+  require(dpt)
   pcs <- prcomp(t(as.matrix(exprs(sce))), scale=TRUE)
   require(Matrix)
   dm <- DiffusionMap(data=pcs$x[,c(1:50)], distance='euclidean')
   sigs <- optimal_sigma(dm)*2^0.5
-  ts <- Transitions(data=pcs$x[,c(1:50)], distance='euclidean', sigma=sigs)
+  ts <- dpt::Transitions(data=pcs$x[,c(1:50)], distance='euclidean', sigma=sigs)
   pt <- dpt(ts, branching=FALSE)
   rc_min <- which.min(pt$DPT)
   rc_max <- which.max(pt$DPT)
@@ -273,7 +274,7 @@ quick_dpt <- function(sce, conditions, col, base_condition, stim_condition, pdf_
     require(Matrix)
     dm <- DiffusionMap(data=pcs$x[,c(1:50)], distance='euclidean')
     sigs <- optimal_sigma(dm)*2^0.5
-    ts <- Transitions(data=pcs$x[,c(1:50)], distance='euclidean', sigma=sigs)
+    ts <- dpt::Transitions(data=pcs$x[,c(1:50)], distance='euclidean', sigma=sigs)
     pt <- dpt(ts, branching=FALSE)
     rc_min <- which.min(pt$DPT)
     rc_max <- which.max(pt$DPT)
@@ -293,7 +294,7 @@ quick_dpt <- function(sce, conditions, col, base_condition, stim_condition, pdf_
   require(Matrix)
   dm <- DiffusionMap(data=pcs$x[,c(1:50)], distance='euclidean')
   sigs <- optimal_sigma(dm)*2^0.5
-  ts <- Transitions(data=pcs$x[,c(1:50)], distance='euclidean', sigma=sigs)
+  ts <- dpt::Transitions(data=pcs$x[,c(1:50)], distance='euclidean', sigma=sigs)
   pt <- dpt(ts, branching=FALSE, root=rc)
   
   col_cat=factor(sce$Condition,levels=conditions)
