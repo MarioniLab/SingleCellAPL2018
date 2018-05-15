@@ -25,7 +25,7 @@ source('analysis/dpt.R')
 ```
 
 
-First we will look within the single batch where the unstimulated cells were and look at pseudotime from the original N4 timecourse. We'll first process it as we did previously.
+We'll look within the single batch where the unstimulated cells were and look at pseudotime from the original N4 timecourse. We'll first process it as we did previously.
 
 ```{r}
 sce <- readRDS('data/sce_run2.rds')
@@ -49,13 +49,18 @@ What are the highly variable genes?
 
 ```{r}
 
-#sceunind <- sceunind[!isSpike(sceunind),]
-
 df <- data.frame(batch=as.character(sceunind$Sorting.Plate))
 mod <- model.matrix(~0+batch, data=df)
-#alt.fit <- trendVar(sceunind, use.spikes=FALSE, design=mod, span=0.15) 
-alt.fit <- trendVar(sceunind, use.spikes=TRUE, design=mod, method='loess', parametric='true', span=0.6) 
-#alt.decomp <- decomposeVar(sceunind, alt.fit, design=mod)
+alt.fit <- trendVar(sceunind, use.spikes=TRUE, design=mod, method='loess', parametric='true', span=0.95) 
+
+# decompose with the spikes so we can plot it out
+alt.decomp2 <- decomposeVar(sceunind, alt.fit, design=mod, get.spikes=TRUE)
+plot(alt.decomp2$mean, alt.decomp2$total, xlab="Mean log-expression", ylab="Variance")
+points(alt.decomp2$mean[which(isSpike(sceunind))], alt.decomp2$total[which(isSpike(sceunind))], col='red', pch=20)
+o <- order(alt.decomp2$mean)
+lines(alt.decomp2$mean[o], alt.decomp2$tech[o], col="red", lwd=2)
+
+# and decompose without spikes to get the top highly variable genes with indices to use later
 alt.decomp <- decomposeVar(sceunind, alt.fit, design=mod, get.spikes=FALSE)
 fdat <- rowData(sceunind)
 rownames(fdat) <- fdat$GeneID
@@ -63,23 +68,17 @@ alt.decomp$symbol <- fdat[rownames(alt.decomp), 'symbol']
 top.hvgs <- order(alt.decomp$bio, decreasing=TRUE)
 head(alt.decomp[top.hvgs,], 20)
 
-plot(alt.decomp$mean, alt.decomp$total, xlab="Mean log-expression", ylab="Variance")
-points(alt.decomp$mean[which(isSpike(sceunind))], alt.decomp$total[which(isSpike(sceunind))], col='red', pch=20)
-o <- order(alt.decomp$mean)
-lines(alt.decomp$mean[o], alt.decomp$tech[o], col="red", lwd=2)
-
-
 ```
 
-Ordering cells by decreasing biological variability reveals
+Ordering cells by decreasing biological variability reveals:
 
-Top gene Dusp1 is a Mapk phosphatase - this could be interesting with respect to signalling initiation.
+1. Top gene Dusp1 is a Mapk phosphatase - this could be interesting with respect to signalling initiation.
 
-Adhesion molecule Itgb2 is CD18, part of LFA-1, which is known to play a role in T cell activation.
+2. Adhesion molecule Itgb2 is CD18, part of LFA-1, which is known to play a role in T cell activation via adhesion.
 
-Cd6 is known to have a role in T cell costimulation
+3. Cd6 is known to have a role in T cell costimulation
 
-Jun is part of AP-1 transcription factors.
+4. Jun is part of AP-1 transcription factors.
 
 Let's look at the top 9 and particularly at LFA-1 components:
 
@@ -110,17 +109,9 @@ par(mfrow=c(1,2), mgp=c(2,0.5,0), mar=c(6,3.5,1,0.2), bty='l', cex.lab=1.5, cex.
 expr_box_plot('Itgal', sceset=sce)
 expr_box_plot('Itgb2', sceset=sce)
 
-pdf('data/APL_Unstim_LFA1exp.pdf', height=4, width=6)
-par(mfrow=c(1,2), mgp=c(2,0.5,0), mar=c(6,3.5,1,0.2), bty='l', cex.lab=1.5, cex.axis=1)
-expr_box_plot('Itgal', sceset=sce)
-expr_box_plot('Itgb2', sceset=sce)
-dev.off()
-
 ```
 
-# Examining the "progressive" unstimulated cells
-
-In our pseudotime analysis, there were a few unstimuated cells that crept into the "early activation" cluster with the majority of cells stimulated for 1 hour. Let's see what is special about these cells. 
+# Differential expression along pseudotime among the unstimulated cells
 
 We first need to batch correct the whole timecourse dataset as we did previously.
 
@@ -133,89 +124,31 @@ combat_sce <- ComBat(dat=exprs(sce), batch=colData(sce)$Sorting.Plate,
 exprs(sce) <- combat_sce
 sce <- sce[, sce$Condition %in% c('unstimulated', 'N4_1h', 'N4_3h', 'N4_6h')]
 
-cond <- as.character(sce$Condition)
-cond[cond %in% 'unstimulated'] <- '0h'
-cond[cond %in% 'N4_1h'] <- '1h'
-cond[cond %in% 'N4_3h'] <- '3h'
-cond[cond %in% 'N4_6h'] <- '6h'
-sce$Condition <- cond
-
 ```
 
-Now we can look at pseudotime etc.
+Now we can look at pseudotime.
 
 ```{r}
+## remove spikes as these are no longer needed
 sce <- sce[!isSpike(sce),]
 
 library(destiny)
 
-resTC <- quick_dpt(sce, conditions=c('0h', '1h', '3h', '6h'), col=c('grey', 'gold', 'orange', 'red'), base_condition='0h', stim_condition='6h')
+resTC <- quick_dpt(sce, conditions=c('unstimulated', 'N4_1h', 'N4_3h', 'N4_6h'), col=c('grey', 'gold', 'orange', 'red'), base_condition='unstimulated', stim_condition='N4_6h')
 
 resTC[[1]]
 
-library(classInt)
-set.seed(100)
-clusts <- findCols(classIntervals(resTC$pt$DPT, 3, style='jenks'))
-
-col_cat <- c('resting', 'early activation', 'late activation')[as.numeric(clusts)]
-col_cat <- factor(col_cat, levels=c('resting', 'early activation', 'late activation'))
-
-plot_dpt_ACR_all_colcat(ts=resTC$ts, pt=resTC$pt, branches=c(1L), path_col=c('black'),
-                        col_cat = col_cat, cat_cols=c('darkgrey', 'lightslateblue', 'slateblue4'), 
-                        col_name='Clusters',
-                        x = 1L, y = 2L, w_width = 0.4)
-
 ```
 
-So the question is what is unique about the cells that have ended up in the early activation cluster despite being unstimulated.
-
-Let's look at which plate they were collected on in case the later plates had a mild level of activation due to slight warming.
+What is differentially expressed along pseudotime (considered as a continuous variable) among the unstimulated cells?
 
 ```{r}
-
-col_cat <- sce$Sorting.Plate
-
-plot_dpt_ACR_all_colcat(ts=resTC$ts, pt=resTC$pt, branches=c(1L), path_col=c('black'),
-                        col_cat = col_cat, cat_cols=c('purple', 'darkgreen', 'blue', 'magenta'), 
-                        col_name='Plates',
-                        x = 1L, y = 2L, w_width = 0.4)
-
-```
-
-There is a tendency for plate 4 unstimulated cells to be a bit more progressive (4 of the 6 progressive cells), but the correlation isn't spectacular because the other 2 are from plate 1. It may be that they warmed up a bit during the sorting time and this allowed them to exhibit a slight stress response.
-
-# Differential expression analysis
-
-Regardless, we want to ask what is special about these progressive cells.  So we'll first try differential expression analysis.
-
-```{r}
-unind <- which(sce$Condition %in% '0h')
-sceunind <- sce[,unind]
-progressive_cells <- colnames(sceunind)
-clusts_un <- clusts[unind]
-progressive_cells <- progressive_cells[which(clusts_un %in% 2)]
-
 library(edgeR)
-df <- data.frame(batch=as.character(sceunind$Sorting.Plate), 
-                 clust=as.character(clusts_un))
-mod <- model.matrix(~0+clust+batch, data=df)
-z_s <- convertTo(sceunind, type="edgeR")
-y_s <- estimateDisp(z_s, design=mod)
-fit <- glmFit(z_s, design=mod, dispersion=y_s$tagwise.dispersion, prior.count=1)
-res <- glmLRT(fit, contrast=c(-1,1,0,0,0))
-bestun <- data.frame(topTags(res, n=nrow(z_s)))
-bestun$symbol <- as.character(fdat[rownames(bestun),'symbol'])
-head(bestun, 20)
 
-boxplot(split(exprs(sceunind)[rownames(bestun)[1], ], factor(clusts_un)), ylab=bestun[1, 'symbol'])
+## redefine unstimulated indices based on new, limited sceset
+unind <- which(sce$Condition %in% 'unstimulated')
+sceunind <- sce[,unind]
 
-```
-
-Nothing is significant.
-
-What if we consider pseudotime designation a continuous variable?
-
-```{r}
 df <- data.frame(batch=as.character(sceunind$Sorting.Plate), 
                  dpt=resTC$pt$DPT[unind])
 mod <- model.matrix(~0+dpt+batch, data=df)
@@ -230,28 +163,11 @@ head(bestun, 20)
 plot(resTC$pt$DPT[unind], 
      exprs(sceunind)[rownames(bestun)[1], ], 
      ylab=bestun[1, 'symbol'],
-     xlab='dpt', 
-     col=c('black', 'red')[clusts_un])
+     xlab='dpt')
 
 ```
 
-The only significant association is with Ift52. Ift52 is a gene of potential interest as it is actually associated with cilia. However, while it is associated with some of those advanced cells, it is certainly not deterministic in defining cells that have entered the early activation cluster.
-
-# Principal components analysis
-
-What happens if we try looking at PCs for these cells?
-
-```{r}
-pcs <- prcomp(t(as.matrix(exprs(sceunind))), scale=TRUE)
-pairs(pcs$x[,c(1:4)], pch=16, cex.lab=1.2, col=c('black', 'red')[clusts_un])
-
-pdf('data/APL_TC_Unstim_PCs.pdf', height=6, width=6)
-pairs(pcs$x[,c(1:4)], pch=16, cex.lab=1.2, col=c('black', 'red')[clusts_un])
-dev.off()
-
-```
-
-So these "progressive" cells appear to be the most divergent in PCA but to have no specific gene expression alterations.
+The only significant association is with Ift52. Ift52 is a gene of potential interest as it is actually associated with cilia. However, while it is associated with some of those advanced cells, it is certainly not deterministic in defining cells that are more progressive along pseudotime.
 
 # tSNE analysis
 
@@ -260,100 +176,22 @@ Let's look at whether there is any structure by tSNE in the unstimulated cells.
 ```{r}
 
 library(Rtsne)
-tn <- Rtsne(t(exprs(sceunind)), perplexity=10)
-plot(tn$Y[,1], tn$Y[,2], col=c('black', 'red')[clusts_un])
+tn <- Rtsne(t(exprs(sceunind)), perplexity=5)
+plot(tn$Y[,1], tn$Y[,2])
 
 ```
 
 There is basically no structure here either.
 
-# Examination of activation markers
-
-For completeness, let's do a hypothesis-driven check for signs of activation.
-
-```{r}
-genes <- c('Nr4a1', 'Il2ra', 'Myc', 'Gzmb', 'Cd44', 'Cd69', 'Cd8a', 'Ptpn6')
-par(mfrow=c(2,4))
-for (i in 1:length(genes)){
-  geneID <- rownames(fdat)[fdat$symbol %in% genes[i]]
-  ct <- cor.test(resTC$pt$DPT[unind], exprs(sceunind)[geneID, ])
-  plot(resTC$pt$DPT[unind], 
-       exprs(sceunind[geneID,]), 
-       col=c('black', 'red')[clusts_un],
-       pch=16,
-       xlab='pseudotime',
-       ylab=paste0('log RNA expression ', genes[i]), 
-       main=paste0('r ', as.character(signif(ct$estimate, 2)), ', p ', as.character(signif(ct$p.value, 2))))
-}
-
-pdf('data/APL_TC_Unstim_selected_genes.pdf', height=6, width=10)
-par(mfrow=c(2,4), mgp=c(2,0.5,0), bty='l', cex.lab=1.5, cex.axis=1)
-for (i in 1:length(genes)){
-  geneID <- rownames(fdat)[fdat$symbol %in% genes[i]]
-  plot(resTC$pt$DPT[unind], 
-       exprs(sceunind[geneID,]), 
-       col=c('black', 'red')[clusts_un],
-       pch=16,
-       main=genes[i],
-       xlab='pseudotime',
-       ylab='log RNA expression')
-}
-dev.off()
-
-proteins <- c('Characteristics.CD25.measurement..log10..', 'Characteristics.CD69.measurement..log10..', 'Characteristics.CD44.measurement..log10..', 'Characteristics.CD62L.measurement..log10..')
-
-par(mfrow=c(2,4), mgp=c(2,0.5,0), bty='l', cex.lab=1.5, cex.axis=1)
-for(i in 1:length(proteins)){
-  ct <- cor.test(resTC$pt$DPT[unind], 
-                 as.numeric(as.character(colData(sceunind)[, proteins[i]])))
-  plot(resTC$pt$DPT[unind], 
-       as.numeric(as.character(colData(sceunind)[, proteins[i]])),
-       xlab='DPT', 
-       ylab=paste0('log10 ', strsplit(proteins[i], '.', fixed=TRUE)[[1]][2]), 
-       col=c('black', 'red')[clusts_un],
-       main=paste0('r ', as.character(signif(ct$estimate, 2)), 
-                   ', p ', as.character(signif(ct$p.value, 2))),
-       pch=16)
-}
-
-pdf('data/APL_TC_Unstim_DPTproteins.pdf', height=6, width=6)
-par(mfrow=c(2,2), mgp=c(2,0.5,0), bty='l', cex.lab=1.5, cex.axis=1)
-for(i in 1:length(proteins)){
-  plot(resTC$pt$DPT[unind], 
-       as.numeric(as.character(colData(sce)[unind, proteins[i]])),
-       xlab='DPT', 
-       ylab='log10 protein expression',
-       main=strsplit(proteins[i], '.', fix=TRUE)[[1]][2],
-       col=c('black', 'red')[clusts_un], pch=16)
-}
-dev.off()
-
-```
 
 # Clustering
 
-And let's cluster the cells to see if our progressive cells are outlying.
+And let's hierarchically cluster the cells to see if any structure is apparent.
 
 ```{r}
 sceunind_var <- sceunind[top.hvgs[1:100],]
 ## note - these genes were calculated using the dataset with batch as an uninteresting variance-contributing factor but before any batch correction and with normalization factors centered on the unstimulated cells only; we are now taking the unstimulated cells from the full normalized and batch-corrected dataset and filtering for these genes
 library(pheatmap)
-clust_df <- data.frame(clusters=c('resting', 'early activation')[clusts_un])
-rownames(clust_df) <- colnames(sceunind_var)
-pheatmap(exprs(sceunind_var), annotation_col=clust_df, show_rownames=FALSE, show_colnames=FALSE)
-
-pdf('data/APL_TC_Unstim_HVG_heaptmap.pdf', height=5, width=5)
-pheatmap(exprs(sceunind_var), annotation_col=clust_df, show_rownames=FALSE, show_colnames=FALSE)
-dev.off()
-
-## and a sanity check for code above
-boxplot(split(exprs(sce)[rownames(fdat[fdat$symbol %in% 'Cd69',]),unind], c('resting', 'early activation')[clusts_un]))
-
-```
-
-Finally, let's make the same heatmap but instead colour the side-bars by pseudotime and batch to get more of an overview.
-
-```{r}
 
 col_anno <- data.frame(pseudotime=resTC$pt$DPT[unind], batch=sceunind_var$Sorting.Plate)
 rownames(col_anno) <- colnames(sceunind_var)

@@ -55,6 +55,7 @@ library(sva)
 mod <- model.matrix(~factor(as.character(sce2$Condition)))
 combat_sce <- ComBat(dat=exprs(sce2), batch=colData(sce2)$Sorting.Plate,
                      mod=mod, par.prior=TRUE, prior.plots=FALSE)
+sce2_noBC <- sce2
 exprs(sce2) <- combat_sce
 ```
 
@@ -100,6 +101,7 @@ Now we have sce1 and sce2 normalised and batch-corrected.  We'll remove spikes s
 ```{r}
 sce1 <- sce1[!isSpike(sce1),]
 sce2 <- sce2[!isSpike(sce2),]
+sce2_noBC <- sce2_noBC[!isSpike(sce2_noBC),]
 ```
 
 We're going to perform RNA flow cytometry to look at earlier time-points with the reduced affinity ligands, but to do this, we need a reliable control gene.  Let's use the sequencing data to find such a control gene. We'll first focus on sce2, which has data from both the time-course and the altered peptide ligand stimulations.  
@@ -116,15 +118,16 @@ drops <- data.frame(drops)
 drops_filt <- apply(drops, 1, function(x){length(which(x)) >= ncol(drops)})
 
 sce2_CG <- sce2[drops_filt,]
+sce2_CG_noBC <- sce2_noBC[drops_filt,]
 
-scesplit <- split(colnames(sce2_CG), factor(sce2_CG$Sorting.Plate))
-scesplit <- lapply(scesplit, function(x) {exprs(sce2_CG)[,x]})
+scesplit <- split(colnames(sce2_CG_noBC), factor(sce2_CG_noBC$Sorting.Plate))
+scesplit <- lapply(scesplit, function(x) {exprs(sce2_CG_noBC)[,x]})
 vars <- lapply(scesplit, function(y) {
   apply(y, 1, var)})
 vars <- data.frame(vars)
 vars_avg <- apply(vars, 1, mean)
-fdat <- rowData(sce2_CG)
-rownames(fdat) <- rownames(sce2_CG)
+fdat <- rowData(sce2_CG_noBC)
+rownames(fdat) <- rownames(sce2_CG_noBC)
 symbols <- fdat[names(vars_avg), 'symbol']
 vars_avg <- data.frame(vars_avg, symbols)
 head(vars_avg[order(vars_avg[,1]),], 10)
