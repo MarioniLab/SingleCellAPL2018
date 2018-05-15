@@ -2,8 +2,6 @@
 
 ## set the working directory to the cytof directory within the github repository
 
-setwd('~/Documents/Post_doc/Git/SingleCellAPL2018/cytof/')
-
 library(ncdfFlow)
 library(cydar)
 library(flowCore)

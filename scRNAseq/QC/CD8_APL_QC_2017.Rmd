@@ -5,11 +5,6 @@ date: "March 2018"
 output: html_document
 ---
 
-```{r setup, include=FALSE}
-knitr::opts_chunk$set(echo = TRUE)
-knitr::opts_knit$set(root.dir = '~/Documents/Post_doc/Git/SingleCellAPL2018/scRNAseq/')
-```
-
 This script runs through the QC process for two separate batches of single-cell sequencing data. The first batch contained 2 96-well plates of cells and the second contained 4 96-well plates.
 
 We will process each batch separately and save the resulting datasets as SCESet objects.
@@ -27,9 +22,9 @@ library(gdata)
 library(scater)
 library(scran)
 
-counts1 <- read.table('data/counts_table_sortdate20160727.txt', header=TRUE)
+counts1 <- read.table('../data/counts_table_sortdate20160727.txt', header=TRUE)
 
-annotation <- read.table('data/E-MTAB-6051.sdrf.txt', header=TRUE, sep='\t')
+annotation <- read.table('../data/E-MTAB-6051.sdrf.txt', header=TRUE, sep='\t')
 annotation$Sample.Names <- unlist(lapply(strsplit(as.character(annotation$Scan.Name), 'H'), function(x){
   x[1]}))
 annotation$Sample.Names <- sub('SLX-', 'SLX.', annotation$Sample.Names)
@@ -81,9 +76,9 @@ Add row (feature) annotations from UCSC mm10 ensGene database. I found this to b
 ```{r}
 isSpike(sce1, 'ERCC') <- grep('ERCC*', rownames(sce1))
 fdat <- data.frame(GeneID=rownames(sce1))
-name_map <- read.table('annotation_resources/ucsc_mm10_ensGene', 
+name_map <- read.table('../annotation_resources/ucsc_mm10_ensGene', 
                        header=TRUE, sep='\t', quote='\"', comment.char="")
-name_map2 <- read.table('annotation_resources/ucsc_mm10_ensemblToGeneName', 
+name_map2 <- read.table('../annotation_resources/ucsc_mm10_ensemblToGeneName', 
                         row.names=1)
 rownames(name_map) <- as.character(name_map$name)
 name_map$symbol <- name_map2[rownames(name_map),1]
@@ -182,7 +177,7 @@ data.frame(ByLibSize=sum(libsize.drop), ByFeature=sum(feature.drop), ByMito=sum(
 And finally save the resulting SCEset.
 
 ```{r}
-saveRDS(sce1, file='data/sce_run1.rds')
+saveRDS(sce1, file='../data/sce_run1.rds')
 ```
 
 # Batch 2 - same process
@@ -192,7 +187,7 @@ Now clear the slate and run the same process on sequencing run 2.  This second s
 ```{r}
 keep(list=list('fdat', 'annotation'))
 
-counts2 <- read.table('data/counts_table_sortdate20161026.txt', header=TRUE)
+counts2 <- read.table('../data/counts_table_sortdate20161026.txt', header=TRUE)
 
 ```
 
@@ -314,7 +309,7 @@ data.frame(ByLibSize=sum(libsize.drop), ByFeature=sum(feature.drop), ByMito=sum(
 Save the SCESet object.
 
 ```{r}
-saveRDS(sce2, file='data/sce_run2.rds')
+saveRDS(sce2, file='../data/sce_run2.rds')
 ```
 
 Save session information.

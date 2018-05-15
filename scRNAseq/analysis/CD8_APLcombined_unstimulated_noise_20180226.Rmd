@@ -5,11 +5,6 @@ date: "April 2018"
 output: html_document
 ---
 
-```{r setup, include=FALSE}
-knitr::opts_chunk$set(echo = TRUE)
-knitr::opts_knit$set(root.dir = '~/Documents/Post_doc/Git/SingleCellAPL2018/scRNAseq/')
-```
-
 This file searches for structure or hints of what may make certain cells better responders in the unstimulated condition.
 
 First we load the data, remove uninformative genes, and normalize the data.
@@ -20,15 +15,15 @@ library(scran)
 library(SingleCellExperiment)
 library(RColorBrewer)
 library(gplots)
-source('analysis/dpt_plots.R')
-source('analysis/dpt.R')
+library(dpt)
+source('dpt_plots.R')
 ```
 
 
 We'll look within the single batch where the unstimulated cells were and look at pseudotime from the original N4 timecourse. We'll first process it as we did previously.
 
 ```{r}
-sce <- readRDS('data/sce_run2.rds')
+sce <- readRDS('../data/sce_run2.rds')
 drop_filt <- rowSums(counts(sce) > 0) >= (ncol(sce) * 0.05)
 sce <- sce[drop_filt,]
 mean_filt <- rowMeans(counts(sce)) >= 1
@@ -204,7 +199,7 @@ pheatmap(exprs(sceunind_var),
          show_colnames=FALSE, 
          color=hmcol)
 
-pdf('data/APL_TC_Unstim_HVG_heaptmap2.pdf', height=5, width=5)
+pdf('../data/APL_TC_Unstim_HVG_heaptmap2.pdf', height=5, width=5)
 pheatmap(exprs(sceunind_var), 
          annotation_col=col_anno, 
          show_rownames=FALSE, 

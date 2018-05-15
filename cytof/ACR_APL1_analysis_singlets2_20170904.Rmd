@@ -5,11 +5,6 @@ date: "May 2018"
 output: html_document
 ---
 
-```{r setup, include=FALSE}
-knitr::opts_chunk$set(echo = TRUE)
-knitr::opts_knit$set(root.dir = '~/Documents/Post_doc/Git/SingleCellAPL2018/cytof/')
-```
-
 This script should run all necessary preprocessing functions and differential abundance analysis on CD8+ T cell stimulation CyTOF data available in the community version of cytobank, accession number 66456.
 
 # Load the data

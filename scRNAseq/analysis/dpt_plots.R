@@ -1,4 +1,5 @@
 ## These are plotting functions to complement the dpt R package in order to make specific types of plots
+## Many are simply lightly modified versions of the functions in the dpt R package (Haghverdi et al, 2016, Nat Methods, 13:845)
 
 plot_dpt_ACR_all_col <- function(
   ts, pt, branches, shape_cat, col_vec, shape_name, col_name, 
@@ -240,9 +241,9 @@ dpt_distrib_plot <- function(pt, sce,
 
 
 quick_dpt <- function(sce, conditions, col, base_condition, stim_condition, pdf_name='null', trajectory_name='pseudotime'){
-  ## There's a bit of an issue with the most null condition not being assigned to one of the roots here. 
-  ## An extra part has been added to the function to use just the most null and most stimulated conditions 
-  ## to find the root cell if a root is not found in the most null condition using all the data.
+  ## It can happen that the root is assigned to a cell not from the least stimulated condition. 
+  ## An extra set of arguments have been added to the function to use just the most null and most stimulated conditions 
+  ## to find the root cell if a root is not found in the most unstimulated condition using all the data.
   
   ## Because these analyses were originally performed in 2016 before dpt was incorportated into the 
   ## destiny package, we implemented the old dpt function and wrote our own plotting functions.

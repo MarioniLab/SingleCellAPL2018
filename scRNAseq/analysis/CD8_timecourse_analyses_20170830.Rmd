@@ -5,11 +5,6 @@ date: "March 2018"
 output: html_document
 ---
 
-```{r setup, include=FALSE}
-knitr::opts_chunk$set(echo = TRUE)
-knitr::opts_knit$set(root.dir = '~/Documents/Post_doc/Git/SingleCellAPL2018/scRNAseq/')
-```
-
 This script runs through analyses of the timecourse data from a single-cell sequencing experiment looking at early activation of CD8+ T cells - this data was collected from an experiment run on 261016.
 
 # Loading the data and filtering genes
@@ -22,11 +17,11 @@ library(scran)
 library(SingleCellExperiment)
 library(RColorBrewer)
 library(gplots)
-source('analysis/dpt_plots.R')
-source('analysis/dpt.R')
+library(dpt)
+source('dpt_plots.R')
 library(pheatmap)
 
-sce <- readRDS('data/sce_run2.rds')
+sce <- readRDS('../data/sce_run2.rds')
 
 ## filter for expression in at least 5% of cells in entire dataset and mean count at least 1
 drop_filt <- rowSums(counts(sce) > 0) >= (ncol(sce) * 0.05)
@@ -121,7 +116,7 @@ cols[cols %in% '0h'] <- 'grey'
 plot(pcs$x[,1], pcs$x[,2], xlab='PC1', ylab='PC2', col=cols, pch=16, cex.lab=1.2)
 legend('topright', legend=c('0h', '1h', '3h', '6h'), fill=c('grey', 'gold', 'orange', 'red'), bty='n')
 
-pdf('data/PCs_CBT_TC_spikenorm_filt05.pdf', height=5, width=3.5)
+pdf('../data/PCs_CBT_TC_spikenorm_filt05.pdf', height=5, width=3.5)
 par(mgp=c(2,1,0), bty='l')
 plot(pcs$x[,1], pcs$x[,2], xlab='PC1', ylab='PC2', col=cols, pch=16, cex.lab=1.2, las=1)
 legend('topright', legend=c('0h', '1h', '3h', '6h'), fill=c('grey', 'gold', 'orange', 'red'), bty='n')
@@ -164,7 +159,7 @@ library(destiny)
 resTC <- quick_dpt(sce, conditions=c('0h', '1h', '3h', '6h'), col=c('grey', 'gold', 'orange', 'red'), base_condition='0h', stim_condition='6h')
 
 resTC[[1]]
-pdf('data/DPT_CBT_TC_spikenorm_filt05.pdf', height=3, width=3.6)
+pdf('../data/DPT_CBT_TC_spikenorm_filt05.pdf', height=3, width=3.6)
 resTC[[1]]
 dev.off()
 
@@ -176,7 +171,7 @@ How are the cells distributed across pseudotime?
 hist(resTC$pt$DPT, breaks=30, xlab='Pseudotime', col='dodgerblue', main='')
 plot(c(1:nrow(resTC$pt)), resTC$pt$DPT[order(resTC$pt$DPT)], xlab='Ordered Cells', ylab='Pseudotime')
 
-pdf('data/DPT_CBT_TC_spikenorm_filt05_histogram.pdf', height=5, width=4)
+pdf('../data/DPT_CBT_TC_spikenorm_filt05_histogram.pdf', height=5, width=4)
 hist(resTC$pt$DPT, breaks=30, xlab='Pseudotime', col='dodgerblue', main='', las=1)
 dev.off()
 ```
@@ -193,7 +188,7 @@ plot(c(1:nrow(resTC$pt)), resTC$pt$DPT[order(resTC$pt$DPT)], xlab='Ordered Cells
      col=c('darkgrey', 'lightslateblue', 'slateblue4')[clusts[order(resTC$pt$DPT)]])
 legend('topleft', legend=c('resting', 'early activation', 'late activation'), fill=c('darkgrey', 'lightslateblue', 'slateblue4'), bty='n')
 
-pdf('data/DPT_CBT_TC_spikenorm_filt05_cdf.pdf', height=5, width=4)
+pdf('../data/DPT_CBT_TC_spikenorm_filt05_cdf.pdf', height=5, width=4)
 plot(c(1:nrow(resTC$pt)), resTC$pt$DPT[order(resTC$pt$DPT)], xlab='Ordered Cells', ylab='Pseudotime',
      col=c('darkgrey', 'lightslateblue', 'slateblue4')[clusts[order(resTC$pt$DPT)]], las=1)
 legend('topleft', legend=c('resting', 'early activation', 'late activation'), fill=c('darkgrey', 'lightslateblue', 'slateblue4'), bty='n')
@@ -208,7 +203,7 @@ plot_dpt_ACR_all_colcat(ts=resTC$ts, pt=resTC$pt, branches=c(1L), path_col=c('bl
                         x = 1L, y = 2L, w_width = 0.4)
 
 
-pdf('data/DPT_CBT_TC_spikenorm_filt05_clusters.pdf', height=3, width=4)
+pdf('../data/DPT_CBT_TC_spikenorm_filt05_clusters.pdf', height=3, width=4)
 set.seed(100)
 plot_dpt_ACR_all_colcat(ts=resTC$ts, pt=resTC$pt, branches=c(1L), path_col=c('black'),
                         col_cat = col_cat, cat_cols=c('darkgrey', 'lightslateblue', 'slateblue4'), 
@@ -258,14 +253,14 @@ bestB1unique <- data.frame(topTags(res1unique, n=nrow(z_s)))
 bestB1unique$symbol <- as.character(fdat[rownames(bestB1unique),'symbol'])
 head(bestB1unique, 20)
 
-write.table(bestB1unique, 'data/DPT_CBT_TC_spikenorm_filt05_earlyactivation_cluster_vrestingandlate.txt', sep='\t', quote=F)
+write.table(bestB1unique, '../data/DPT_CBT_TC_spikenorm_filt05_earlyactivation_cluster_vrestingandlate.txt', sep='\t', quote=F)
 
 ```
 
 This seems to have a lot of transcription factors among the upregulated genes.  Let's directly test for enrichment of transcription factors among the top upregulated genes.  This is just a simple hypergeometric test.  
 
 ```{r}
-TFs <- read.table('annotation_resources/BrowseTFTcoF-DB_Mouse.txt', sep='\t', header=T)
+TFs <- read.table('../annotation_resources/BrowseTFTcoF-DB_Mouse.txt', sep='\t', header=T)
 
 rowData(sce)$TF <- rowData(sce)$symbol %in% TFs$Symbol
 N41hHM <- sce[rownames(bestB1unique[(bestB1unique$logFC>0) & (bestB1unique$FDR < 0.05),]),]
@@ -298,7 +293,7 @@ lbls <- paste(lbls, pct) # add percents to labels
 lbls <- paste(lbls,"%",sep="") # ad % to labels 
 pie(slices,labels = lbls, col=c('dodgerblue', 'grey'), main='in tested gene list')
 
-pdf('data/DPT_CBT_TC_spikenorm_filt05_cluster2_TFs_piecharts.pdf', height=3, width=6)
+pdf('../data/DPT_CBT_TC_spikenorm_filt05_cluster2_TFs_piecharts.pdf', height=3, width=6)
 par(mfrow=c(2,1), mgp=c(2,0.5,0), mar=c(1,4,2,2))
 slices <- c(length(which(rowData(N41hHM)$TF)), 
             nrow(N41hHM)-length(which(rowData(N41hHM)$TF)))
@@ -358,7 +353,7 @@ pheatmap(exprs(N41hHM)[,order(resTC$pt$DPT)],
          annotation_names_col=FALSE,
          labels_row=rowData(N41hHM)$symbol, labels_col='', color=hmcol, cexRow=0.8)
 
-pdf('data/DPT_CBT_TC_spikenorm_filt05_cluster2_TFs_heatmap.pdf', width=5, height=4)
+pdf('../data/DPT_CBT_TC_spikenorm_filt05_cluster2_TFs_heatmap.pdf', width=5, height=4)
 pheatmap(exprs(N41hHM)[,order(resTC$pt$DPT)], 
          annotation_col=cols_df[order(resTC$pt$DPT), ], 
          cluster_rows=TRUE, cluster_cols=FALSE,
@@ -397,7 +392,7 @@ for(i in 1:length(genes)){
             cols=c('grey', 'gold', 'orange', 'red'))
 }  
 
-pdf('data/DPT_CBT_TC_spikenorm_filt05_cluster2_TFs_genes.pdf', height=5, width=4)
+pdf('../data/DPT_CBT_TC_spikenorm_filt05_cluster2_TFs_genes.pdf', height=5, width=4)
 par(mfrow=c(2,2), mgp=c(1.5,0.5,0), mar=c(3,3.5,0.2,0.2), bty='l')
 for(i in 1:length(genes)){
   box_plot2(genes[i], sceset=sce, 
@@ -456,8 +451,8 @@ GOs <- lapply(GOs, function(x) {
 })
 
 ## write as tables
-write.table(GOs[[1]], 'data/DPT_CBT_TC_spikenorm_filt05_cluster2_GOsig.txt', quote=FALSE, sep='\t')
-write.table(GOs[[2]], 'data/DPT_CBT_TC_spikenorm_filt05_cluster3_GOsig.txt', quote=FALSE, sep='\t')
+write.table(GOs[[1]], '../data/DPT_CBT_TC_spikenorm_filt05_cluster2_GOsig.txt', quote=FALSE, sep='\t')
+write.table(GOs[[2]], '../data/DPT_CBT_TC_spikenorm_filt05_cluster3_GOsig.txt', quote=FALSE, sep='\t')
 
 
 for(i in 1:length(GOs)){
@@ -488,7 +483,7 @@ barplot(GOs20[[1]]$enrich, horiz=TRUE, beside=TRUE, main='early activation clust
         col=c('lightslateblue'), las=1, xlab=expression(paste("-log"[10], " p-value x direction of regulation")),
         names.arg=GOs20[[1]]$Term, cex.names=0.8)
 
-pdf('data/DPT_CBT_TC_spikenorm_filt05_cluster2_GO20.pdf', height=5, width=8)
+pdf('../data/DPT_CBT_TC_spikenorm_filt05_cluster2_GO20.pdf', height=5, width=8)
 par(mar=c(5.1,25.1,2.1,2.1), mgp=c(2,1,0))
 barplot(GOs20[[1]]$enrich, horiz=TRUE, beside=TRUE, main='early activation cluster',
         col=c('lightslateblue'), las=1, xlab=expression(paste("-log"[10], " p-value")),
@@ -500,7 +495,7 @@ barplot(GOs20[[2]]$enrich, horiz=TRUE, beside=TRUE, main='late activation cluste
         col=c('slateblue4'), las=1, xlab=expression(paste("-log"[10], " p-value x direction of regulation")),
         names.arg=GOs20[[2]]$Term, cex.names=0.8)
 
-pdf('data/DPT_CBT_TC_spikenorm_filt05_cluster3_GO20.pdf', height=5, width=8)
+pdf('../data/DPT_CBT_TC_spikenorm_filt05_cluster3_GO20.pdf', height=5, width=8)
 par(mar=c(5.1,25.1,2.1,2.1), mgp=c(2,1,0))
 barplot(GOs20[[2]]$enrich, horiz=TRUE, beside=TRUE, main='late activation cluster',
         col=c('slateblue4'), las=1, xlab=expression(paste("-log"[10], " p-value")),
