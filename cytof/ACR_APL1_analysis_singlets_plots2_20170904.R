@@ -1,5 +1,9 @@
 ## Rscript to make plots of differential abundance analysis on APL1 data
 
+## set the working directory to the cytof directory within the github repository
+
+setwd('~/Documents/Post_doc/Git/SingleCellAPL2018/cytof/')
+
 library(ncdfFlow)
 library(cydar)
 library(flowCore)
@@ -9,6 +13,7 @@ library(flowCore)
 plotCellGeneric <- function (x, y, generic_value, grange = NULL, length.out = 100, pch = 16, 
                              virid_option='D',
                              ...) 
+## modified from cydar plotting functions
 {
   require(viridis)
   if (is.null(grange)) {
@@ -36,22 +41,21 @@ plotCellGeneric <- function (x, y, generic_value, grange = NULL, length.out = 10
 
 ############################## plotting script #################################
 
+## make plots to depict differential abundance results
 
-setwd('~/Documents/Post_doc/Sync/Experiments/CyTOF/APL 1/20161209-12 APL1 CyTOF/analysis2/')
-load('ACR_APL1_singletfilt2_inprogress_20170904.RData')
+load('data/cytof_analysis_in_progress.RData')
 
 set.seed(100)
 library(Rtsne)
 t.out <- Rtsne(intensities(cd2), perplexity=50)
 
 ## save the tsne coordinates for later use if want to make more plots
-saveRDS(t.out, file='ACR_APL1_tSNE_singletfilt2_allspheres_20170904.rds')
+saveRDS(t.out, file='data/cytof_analysis_tsne.rds')
 
 library(edgeR)
-pdf('~/Documents/Post_doc/Sync/Experiments/CyTOF/APL 1/20161209-12 APL1 CyTOF/analysis2/APL_v_NP68_singletfilt2_20170904.pdf', height=9, width=3)
+pdf('data/APL_v_NP68.pdf', height=9, width=3)
 layout(cbind(c(1:4),5), widths=c(8, 1.5))
 par(mar=c(2.1, 2.1, 2.1, 1.1), oma=c(3,3,1,1), mgp=c(2.2,1,0))
-adjc <- cpm(y, log=TRUE, prior=3)
 for (peptide in c('N4', 'T4', 'Q4H7', 'G4')) {
   logfc <- res.all$table[is.sig.all,paste0("logFC.", peptide)]
   col <- plotCellLogFC(t.out$Y[is.sig.all,1], t.out$Y[is.sig.all,2], logfc, max.logFC=5,
@@ -69,11 +73,33 @@ mtext('t-SNE1', side=1, line=1, outer=TRUE, cex=1.2)
 mtext('t-SNE2', side=2, line=1, out=TRUE, cex=1.2)
 dev.off()
 
+## and repeat this without limiting the logFC to see the extremes
+pdf('data/APL_v_NP68_max.pdf', height=9, width=3)
+layout(cbind(c(1:4),5), widths=c(8, 1.5))
+par(mar=c(2.1, 2.1, 2.1, 1.1), oma=c(3,3,1,1), mgp=c(2.2,1,0))
+maxlogFC <- max(abs(res.all$table[is.sig.all,c(1:4)]))
+for (peptide in c('N4', 'T4', 'Q4H7', 'G4')) {
+  logfc <- res.all$table[is.sig.all,paste0("logFC.", peptide)]
+  col <- plotCellLogFC(t.out$Y[is.sig.all,1], t.out$Y[is.sig.all,2], logfc, max.logFC=maxlogFC,
+                       cex.axis=1.5, cex.lab=1.5, 
+                       cex.main=1.5, cex=1, main=peptide)
+}
+par(mar=c(0,0,0,0))
+plot(0,0, type="n", axes=FALSE, ylab="", xlab="", ylim=c(-1, 1), xlim=c(-1, 0.5))
+start.loc <- seq(-0.5, 0.5, length.out=length(col))
+rect(-0.2, start.loc, 0.5, start.loc+diff(start.loc)[1], col=col, border=col)
+text(0.08, -0.5, pos=1, as.character(round(as.numeric(names(col)[1]), 1)), cex=1)
+text(0.08, 0.5,  pos=3, as.character(round(as.numeric(names(col)[length(col)]), 1)), cex=1)
+text(-0.7, 0, pos=1, srt=90, "Log-FC", cex=1.5)
+mtext('t-SNE1', side=1, line=1, outer=TRUE, cex=1.2)
+mtext('t-SNE2', side=2, line=1, out=TRUE, cex=1.2)
+dev.off()
+
+
 ## Now look at the intensities so we can see how these hyperspheres are defined in terms of markers.
 
-
-pdf('~/Documents/Post_doc/Sync/Experiments/CyTOF/APL 1/20161209-12 APL1 CyTOF/analysis2/Intensity_plots_sig_singletfilt2_20170904.pdf', height=20, width=18)
-rownames(channels) <- channels[,1]
+pdf('data/intensities.pdf', height=20, width=18)
+rownames(channels) <- channels$channel
 reranges <- intensityRanges(cd2)
 lmat <- cbind(matrix(seq_len(5*4), ncol=4, nrow=5), 21)
 par(oma=c(4.1,4.1,1.1,1.1))
@@ -97,10 +123,11 @@ mtext(text='t-SNE1', side=1, line=2, outer=TRUE, cex=1.5)
 mtext(text='t-SNE2', side=2, line=1, outer=TRUE, cex=1.5)
 dev.off()
 
-## plot intensities of specific genes
+## And plot intensities of specific markers for a figure
+
 reranges2 <- reranges[,c('Dy163Di', 'Gd155Di', 'Yb173Di', 'Sm154Di', 'Dy161Di', 'Eu151Di')]
 int_filt <- intensities(cd2)[,c('Dy163Di', 'Gd155Di', 'Yb173Di', 'Sm154Di', 'Dy161Di', 'Eu151Di')]
-pdf('~/Documents/Post_doc/Sync/Experiments/CyTOF/APL 1/20161209-12 APL1 CyTOF/analysis2/Intensity_plots_sig_filtered_singletfilt2_20170904.pdf', height=7.2, width=5.5)
+pdf('data/intensities_selected.pdf', height=7.2, width=5.5)
 lmat <- cbind(c(1,3,5), c(2,4,6), 7)
 layout(lmat, widths=c(rep(8, 2), 2))
 par(mar=c(2.1, 2.1, 2.1, 1.1), oma=c(3,3,1,1), mgp=c(2.2,1,0))
@@ -123,11 +150,12 @@ mtext('t-SNE1', side=1, line=1, outer=TRUE, cex=1.2)
 mtext('t-SNE2', side=2, line=1, out=TRUE, cex=1.2)
 dev.off()
 
-## and now plot the relative proportion of each hypersphere occupied by cells of each sample 
+## And finally we'll plot the relative proportion of each hypersphere occupied by cells of each sample 
 ## (after normalizing for cell number in each sample)
 
-props <- t(apply(assay(cd2), 1, function(x) {x/cd2$totals * 100}))
-peptide <- samples[colnames(cd2), 'peptide']
+props <- t(apply(assay(cd2), 1, function(x) {x/cd2$totals}))
+peptide <- samples[colnames(cd2), 'Conditions']
+peptide <- unlist(lapply(strsplit(as.character(peptide), ' '), function(x){x[1]}))
 props_avg <- data.frame(N4=apply(props[,peptide %in% 'N4'], 1, mean),
                         T4=apply(props[,peptide %in% 'T4'], 1, mean),
                         Q4H7=apply(props[,peptide %in% 'Q4H7'], 1, mean),
@@ -137,7 +165,7 @@ props_avg <- data.frame(N4=apply(props[,peptide %in% 'N4'], 1, mean),
 rel_props <- data.frame(t(apply(props_avg, 1, function(x) {x/sum(x)})))
 
 
-pdf('~/Documents/Post_doc/Sync/Experiments/CyTOF/APL 1/20161209-12 APL1 CyTOF/analysis2/Relative_proportions_HSs_sig_singletfilt2_horizontal_20170904.pdf', 
+pdf('data/relative_normalized_proportions.pdf', 
     height=2.8, width=12)
 layout(matrix(c(1:6), nrow=1, ncol=6), widths=c(8, 8, 8, 8, 8, 1.5))
 par(mar=c(2.1, 2.1, 2.1, 1.1), oma=c(3,3,1,1), mgp=c(2.2,1,0))

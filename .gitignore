@@ -11,6 +11,8 @@
 
 # Generated Data files
 *.rds
+*.nc
+*.RData
 
 # Downloaded Data files
 *.txt
