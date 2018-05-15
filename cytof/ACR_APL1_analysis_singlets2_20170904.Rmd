@@ -9,7 +9,7 @@ This script should run all necessary preprocessing functions and differential ab
 
 # Load the data
 
-First we load in the data set and appropriately name all of the channels and samples.
+First we load in the data set and gather information about the samples and channels.
 
 ```{r}
 library(ncdfFlow)
@@ -18,8 +18,9 @@ library(flowCore)
 f <- list.files(path='data', pattern='*0.fcs', full.names=TRUE)
 ncdf <- read.ncdfFlowSet(files=f, ncdfFile='ncdf')
 
-channels <- data.frame(channel=c("Yb174Di", "Gd156Di", "Nd150Di", "Tm169Di", "Er170Di", "Tb159Di", "Er168Di", "Gd155Di", "Eu151Di", "Y89Di", "Nd144Di", "Dy163Di", "Sm154Di", "Yb172Di", "Yb173Di", "Gd158Di", "Dy161Di", "Ho165Di", "Gd160Di"), 
-                       marker=c("174Yb_IL-7Ra", "156Gd_BTLA", "150Nd_CD27", "169Tm_TCRb", "170Er_NK1.1", "159Tb_PD-1", "168Er_CD8a", "155Gd_CD44", "151Eu_CD25", "89Y_CD45", "144Nd_CD11a-FITC", "163Dy_CD62L-APC", "154Sm_CTLA-4", "172Yb_Perforin", "173Yb_Granzyme B", "158Gd_Foxp3", "161Dy_Tbet", "165Ho_IFNg", "160Gd_LAMP-1-PE"))
+channels <- data.frame(channel=colnames(ncdf), marker=parameters(ncdf@frames$c02_SAMPLE_1_0.fcs)$desc)
+## we'll limit this dataframe to the protein marker channels for later use
+channels <- channels[-which(channels$channel == channels$marker),]
 
 samples <- read.table('data/experiment_66456_annotations.tsv', sep='\t', header=TRUE)
 rownames(samples) <- samples$FCS.Filename
@@ -53,7 +54,7 @@ pool.ff <- split(pool.ff, clogfilt)['timegate-'][[1]]
 plot(data.frame(exprs(pool.ff))$Time, log10(data.frame(exprs(pool.ff))$Y89Di), cex=0.1, xlab='time', ylab='CD45', ylim=c(-1,4))
 ```
 
-Now let's transform the data and find the beads.
+Now let's transform the data and find the beads, which appear in the Eu151 and Eu153 channels.
 
 ```{r}
 pool.ff <- pool.ff[,!colnames(pool.ff) %in% c('Event_length', 'Time', 'Offset', 'Center', 'Width', 'Residual')]
@@ -95,7 +96,7 @@ hist(data.frame(exprs(filt_set))$Ir191Di, breaks=200, xlab='Ir191', main='')
 hist(data.frame(exprs(filt_set))$Ir193Di, breaks=200, xlab='Ir193', main='')
 ```
 
-Exclude dead cells as Pt high. We'll do this manually because we want to be very stringent.
+This experiment was stained with cisplatin to mark the dead cells. Let's exclude dead cells as 195 Pt high. We'll do this manually because we want to be very stringent.
 
 ```{r}
 hist(data.frame(exprs(filt_set))$Pt195Di, breaks=200, xlab='Pt195', main='')
