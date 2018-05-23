@@ -227,6 +227,7 @@ dpt_distrib_plot <- function(pt, sce,
                              conditions=c('N4 6h', 'T4 6h', 'G4 6h', 'NP68 6h'), 
                              col=c('red', 'green3', 'blue', 'grey40'), 
                              trajectory_name){
+  jitter <- position_jitter(width = 0.04, height = 0)
   temp <- data.frame(DPT=pt$DPT, condition=sce$Condition)
   temp <- temp[temp$condition %in% conditions,]
   temp$condition <- factor(as.character(temp$condition), levels=conditions)
@@ -234,6 +235,7 @@ dpt_distrib_plot <- function(pt, sce,
     geom_violin() + 
     scale_fill_manual(values=col) + 
     guides(fill=FALSE) + 
+    geom_point (size=0.3, shape=1, position=jitter) +
     theme_bw() + labs(y=trajectory_name) +
     theme(panel.border = element_blank(), panel.grid.major = element_blank(),
           panel.grid.minor = element_blank(), axis.line = element_line(colour = "black"))

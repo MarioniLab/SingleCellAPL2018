@@ -156,18 +156,20 @@ boxes_plot <- function(sceset, geneID, mylevels=c('N4_6h', 'T4_6h', 'G4_6h', 'NP
   fdat <- rowData(sceset)
   rownames(fdat) <- rownames(sceset)
   genen <- rownames(fdat[fdat$symbol %in% geneID,])
-  boxplot(split(exprs(sceset)[genen,],
+  temp <- split(exprs(sceset)[genen,],
                 factor(as.character(sceset$Condition),
-                       levels=mylevels)), 
-          pch=20, las=2, ylab=bquote('log'[2] ~ .(geneID) ~ 'expression'),
-          col=c('red', 'green3', 'blue', 'grey40', 'grey', 'gold', 'orange'), 
-          ylim=c(0,12), cex.lab=1.2
-  )
+                       levels=mylevels))
+  stripchart(temp, method='jitter', vertical=TRUE, pch=20, 
+             col=c('red', 'green3', 'blue', 'grey40', 'grey', 'gold', 'orange'), 
+             las=2, 
+             xlim=c(0.5,length(temp)+0.5), ylim=c(0,12), cex.lab=1.2,
+             ylab=bquote('log'[2] ~ .(geneID) ~ 'expression'))
+  boxplot(temp, outline=FALSE, add=T, col=rgb(0,0,0, alpha=0), axes=F)
   if(ANOVA) {
     a <- signif(summary(aov(gene~condition, 
-                 data.frame(gene=exprs(sceset)[genen,],
-                            condition=factor(sceset$Condition))))[[1]][1,5], 3)
-  text(x=length(mylevels)-1, y=11, labels=bquote(ANOVA ~ italic(' p ') ~ .(a)), cex=1.2)
+                            data.frame(gene=exprs(sceset)[genen,],
+                                       condition=factor(sceset$Condition))))[[1]][1,5], 3)
+    text(x=length(mylevels)-1, y=11, labels=bquote(ANOVA ~ italic(' p ') ~ .(a)), cex=1.2)
   }
 }
 
@@ -207,20 +209,26 @@ Finally, let's look at protein expression by condition.
 ```{r}
 
 protein_violin_plot <- function(protein, sceset, split_facs, cols){
+  jitter <- position_jitter(width = 0.07, height = 0)
   protname <- paste0('Characteristics.', protein, '.measurement..log10..')
   temp <- data.frame(colData(sceset)[,c(protname, 'Condition')])
   temp <- temp[temp$Condition %in% split_facs,]
   temp$Condition <- factor(as.character(temp$Condition), levels=split_facs)
   colnames(temp) <- c('protein', 'condition')
   temp$protein <- as.numeric(as.character(temp$protein))
+  temp$condition <- unlist(lapply(strsplit(as.character(temp$condition), '_'), function(x){x[1]}))
+  temp_levels <- unlist(lapply(strsplit(as.character(split_facs), '_'), function(x){x[1]}))
+  temp$condition <- factor(temp$condition, levels=temp_levels)
   ggplot(temp, aes(condition, protein, fill=factor(condition))) + 
     geom_violin() + 
     scale_fill_manual(values=cols) + 
     guides(fill=FALSE) + 
+    geom_point (size=0.5, shape=1, position=jitter) +
     theme_bw() + labs(y=bquote('log'[10] ~ .(protein) ~ 'expression', where=environment())) +
     theme(panel.border = element_blank(), panel.grid.major = element_blank(),
           panel.grid.minor = element_blank(), axis.line = element_line(colour = "black"))
 }
+
 
 par(mfrow=c(2,2))
 protein_violin_plot('CD69', sceset=sce1, 
@@ -243,7 +251,7 @@ protein_violin_plot('CD69', sceset=sce1,
             cols=c('red', 'green3', 'blue', 'grey40'))
 dev.off()
 
-pdf(paste0('../data/CD69_protein_APL2_spikenorm_filt05_violinplot.pdf'), height=2.5, width=2)
+pdf(paste0('../data/CD69_protein_APL2_spikenorm_filt05_violinplot.pdf'), height=2, width=2)
 protein_violin_plot('CD69', sceset=sce2, 
             split_facs=c('N4_6h', 'T4_6h', 'G4_6h', 'NP68_6h'), 
             cols=c('red', 'green3', 'blue', 'grey40'))
@@ -255,7 +263,7 @@ protein_violin_plot('CD25', sceset=sce1,
             cols=c('red', 'green3', 'blue', 'grey40'))
 dev.off()
 
-pdf(paste0('../data/CD25_protein_APL2_spikenorm_filt05_violinplot.pdf'), height=2.5, width=2)
+pdf(paste0('../data/CD25_protein_APL2_spikenorm_filt05_violinplot.pdf'), height=2, width=2)
 protein_violin_plot('CD25', sceset=sce2, 
             split_facs=c('N4_6h', 'T4_6h', 'G4_6h', 'NP68_6h'), 
             cols=c('red', 'green3', 'blue', 'grey40'))

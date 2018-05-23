@@ -180,7 +180,7 @@ plot_DPTvprotein <- function(sceset, sort_date, DPTres, protein, trajectory_name
        xlab=bquote('log'[10] ~ .(protein) ~ 'expression'), 
        ylab=trajectory_name, 
        cex=0.8, las=1)
-  text(x=max(as.numeric(as.character(colData(sceset)[sceset$Date %in% sort_date, coln])))-0.25,
+  text(x=max(as.numeric(as.character(colData(sceset)[sceset$Date %in% sort_date, coln])))-0.4,
        y=min(DPTres$pt[sceset$Date %in% sort_date,'DPT'])+0.05, 
        labels=bquote(italic('r ') ~ .(round(cort$estimate, 2))))
 }
@@ -191,22 +191,22 @@ plot_DPTvprotein(sceAT, '2016-07-27', resAT, 'CD69', trajectory_name='transcript
 plot_DPTvprotein(sceAT, '2016-10-26', resAT, 'CD25', trajectory_name='transcriptional activation status')
 plot_DPTvprotein(sceAT, '2016-07-27', resAT, 'CD25', trajectory_name='transcriptional activation status')
 
-pdf('../data/DPT_combrunAT_spikenorm_filt05_DPTvCD25_2.pdf', height=4.5, width=4)
+pdf('../data/DPT_combrunAT_spikenorm_filt05_DPTvCD25_2.pdf', height=4.5, width=3.3)
 par(mgp=c(2.5,0.5,0))
 plot_DPTvprotein(sceAT, '2016-10-26', resAT, 'CD25', trajectory_name='transcriptional activation status')
 dev.off()
 
-pdf('../data/DPT_combrunAT_spikenorm_filt05_DPTvCD25_1.pdf', height=4.5, width=4)
+pdf('../data/DPT_combrunAT_spikenorm_filt05_DPTvCD25_1.pdf', height=4.5, width=3.3)
 par(mgp=c(2.5,0.5,0))
 plot_DPTvprotein(sceAT, '2016-07-27', resAT, 'CD25', trajectory_name='transcriptional activation status')
 dev.off()
 
-pdf('../data/DPT_combrunAT_spikenorm_filt05_DPTvCD69_2.pdf', height=4.5, width=4)
+pdf('../data/DPT_combrunAT_spikenorm_filt05_DPTvCD69_2.pdf', height=4.5, width=3.3)
 par(mgp=c(2.5,0.5,0))
 plot_DPTvprotein(sceAT, '2016-10-26', resAT, 'CD69', trajectory_name='transcriptional activation status')
 dev.off()
 
-pdf('../data/DPT_combrunAT_spikenorm_filt05_DPTvCD69_1.pdf', height=4.5, width=4)
+pdf('../data/DPT_combrunAT_spikenorm_filt05_DPTvCD69_1.pdf', height=4.5, width=3.3)
 par(mgp=c(2.5,0.5,0))
 plot_DPTvprotein(sceAT, '2016-07-27', resAT, 'CD69', trajectory_name='transcriptional activation status')
 dev.off()
@@ -551,7 +551,6 @@ expr_box_plot <- function(gene_symbol, sceset,
   
 }
 
-## change sceset arguments below to sceAT???
 
 par(mfrow=c(1,4), mgp=c(2,0.5,0), mar=c(6,3.5,1,0.2), bty='l', cex.lab=1.5, cex.axis=1)
 expr_box_plot('Tapbp', sceset=sceAT)
