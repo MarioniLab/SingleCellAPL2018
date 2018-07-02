@@ -217,11 +217,6 @@ plot_protein_DPT <- function(sce, pt, namepdf='null', scale=FALSE){
   
 }
 
-plot_enrich <- function(){
-  require(edgeR)
-  require(goseq)
-  
-}
 
 dpt_distrib_plot <- function(pt, sce,
                              conditions=c('N4 6h', 'T4 6h', 'G4 6h', 'NP68 6h'), 

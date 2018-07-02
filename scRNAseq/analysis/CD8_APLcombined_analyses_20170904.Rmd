@@ -7,8 +7,9 @@ output: html_document
 
 This file walks through all of the analyses combining the single-cell transcriptomic data from both runs to gain more power for particular analyses.
 
-First we load the data, remove uninformative genes, and normalize the data together.
+# Loading the data and filtering genes
 
+First we load the data, remove uninformative genes, and normalize the data together.
 
 ```{r}
 library(scater)
@@ -69,6 +70,8 @@ legend('bottomright', legend=levels(factor(sce$batch)),
 ```
 
 The second batch seems to have fewer reads but a similar ratio of cellular to ERCC reads.   Now let's correct for any batch effects.
+
+# Batch effect correction
 
 ```{r}
 ## let's look at the batch effect
@@ -142,6 +145,8 @@ plotPCs(pcs$x[sce$Date %in% '2016-10-26',], cols=colCD44)
 
 ```
 
+# Diffusion pseudotime analysis
+
 Let's now look at diffusion pseudotime. We learned from the time-course data that there is a TCR-independent burst of TF activity at 1 hour, so we'll exclude that time-point.
 
 ```{r}
@@ -166,7 +171,11 @@ dev.off()
 
 ```
 
-It looks like most cells are following the same trajectory regardless of stimulus.  Let's formally test for this by controlling for activation status while performing a differential expression analysis by stimulus. To do this robustly, we should have an independent marker of activation (not progression along the pseudotime trajectory because this would be overift). Both CD69 and CD25 would be robust markers of classical cellular activation and could serve as a surrogate for activation status when we do differential expression analysis accounting for activation. Let's look at which protein expression best agrees with transcriptomic activation status as defined by pseudotime progression.
+It looks like most cells are following the same trajectory regardless of stimulus.  Let's formally test for this by controlling for activation status while performing a differential expression analysis by stimulus. To do this robustly, we should have an independent marker of activation (not progression along the pseudotime trajectory because this would be overift). 
+
+# Looking for a protein expression surrogate for transcriptional activation
+
+Both CD69 and CD25 would be robust markers of classical cellular activation and could serve as a surrogate for activation status when we do differential expression analysis accounting for activation. Let's look at which protein expression best agrees with transcriptomic activation status as defined by pseudotime progression.
 
 ```{r}
 
@@ -213,7 +222,10 @@ dev.off()
 
 ```
 
-CD69 is very well associated with pseudotime and is generally accepted as a marker of activation. Its only draw back is that it doesn't have great overlap between G4 and N4.  To avoid assuming linearity, we'll use a spline fit to protein expression - hopefully this will help us avoid spurious results, when controlling for CD69 expression in DE analysis between peptides. We'll also include an interaction term with the date of CD69 protein expression measurements because these FACS values are on a relative scale and are not directly comparable between experiments.
+CD69 is very well associated with pseudotime and is generally accepted as a marker of activation. 
+# Differential expression analysis between peptide treatments, controlling for CD69 expression
+
+The only draw back of CD69 as a surrogate for transcriptional activation is that it doesn't have great overlap between G4 and N4.  To avoid assuming linearity, we'll use a spline fit to protein expression - hopefully this will help us avoid spurious results, when controlling for CD69 expression in DE analysis between peptides. We'll also include an interaction term with the date of CD69 protein expression measurements because these FACS values are on a relative scale and are not directly comparable between experiments.
 
 ```{r}
 AT_mat <- data.frame(Cond=colData(sceAT)$Condition, Batch=colData(sceAT)$batch)
@@ -351,14 +363,9 @@ dev.off()
 
 ```
 
-Approximately how many genes are differentially expressed between the peptide conditions? In other words, what is pi-0, or the estimate of how often the null hypothesis is true?
+What proportion of genes are differentially expressed between the peptide conditions? 
 
 ```{r}
-# library(qvalue)
-# p0T4 <- pi0est(p=bestT4$PValue, pi0.method = 'bootstrap')
-# p0T4
-# p0G4 <- pi0est(p=bestG4$PValue, pi0.method = 'bootstrap')
-# p0G4
 
 ps_list <- data.frame(peptides=c(rep('T4', nrow(bestT4)), rep('G4', nrow(bestG4))), ps=c(bestT4$PValue, bestG4$PValue))
 ps_list$adj <- p.adjust(ps_list$ps, method='fdr')
@@ -390,7 +397,7 @@ length(which(bestG4$FDR < 0.05))/nrow(bestG4)
 
 ```
 
-So it looks like, particularly for T4, there is very little differential regulation. There may be some more with G4, but this is also a bit harder because G4 overlap N4 less with respect to CD69 expression.
+So it looks like there is very little differential regulation that we are powered to detect.
 
 Now, let's try enrichment testing.
 

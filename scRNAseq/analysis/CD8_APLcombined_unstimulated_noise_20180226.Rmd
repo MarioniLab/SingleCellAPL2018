@@ -162,7 +162,7 @@ plot(resTC$pt$DPT[unind],
 
 ```
 
-The only significant association is with Ift52. Ift52 is a gene of potential interest as it is actually associated with cilia. However, while it is associated with some of those advanced cells, it is certainly not deterministic in defining cells that are more progressive along pseudotime.
+The only significant association is with Ift52. However, while it is associated with some of those advanced cells, it is certainly not deterministic in defining cells that are more progressive along pseudotime.
 
 # tSNE analysis
 

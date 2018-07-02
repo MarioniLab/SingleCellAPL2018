@@ -7,6 +7,8 @@ output: html_document
 
 This script runs through analyses of the altered affinity ligand stimulation data from a single-cell sequencing experiment looking at early activation of CD8+ T cells - this data was collected from experiments run on 20160727 and 20161026.  These analyses treat each dataset separately.
 
+# Loading the data and filtering genes
+
 First we'll load the data and filter uninformative genes.
 
 ```{r}
@@ -44,6 +46,8 @@ sce2 <- normalize(sce2, exprs_values='counts', return_norm_as_exprs=TRUE, log_ex
 ```
 
 We know from looking at the time-course analysis that we need to batch correct run 2, so let's do that.
+
+# Batch effect correction
 
 ```{r}
 library(sva)
@@ -98,6 +102,8 @@ sce1 <- sce1[!isSpike(sce1),]
 sce2 <- sce2[!isSpike(sce2),]
 sce2_noBC <- sce2_noBC[!isSpike(sce2_noBC),]
 ```
+
+# Finding a control gene for RNA flow cytometry
 
 We're going to perform RNA flow cytometry to look at earlier time-points with the reduced affinity ligands, but to do this, we need a reliable control gene.  Let's use the sequencing data to find such a control gene. We'll first focus on sce2, which has data from both the time-course and the altered peptide ligand stimulations.  
 
@@ -203,6 +209,8 @@ boxes_plot(sce1, 'Fosb', ANOVA=FALSE, mylevels=c('N4_6h', 'T4_6h', 'G4_6h', 'NP6
 ```
 
 So Fosb is unique to the burst (not even detected in enough cells in the non-time-course dataset) and Nr4a1 is more varied (decent expression in T4 6h) though definitely highest in N4 1h.
+
+# Protein expression in sequenced cells
 
 Finally, let's look at protein expression by condition.
 
