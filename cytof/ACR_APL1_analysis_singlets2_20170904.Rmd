@@ -54,7 +54,7 @@ pool.ff <- split(pool.ff, clogfilt)['timegate-'][[1]]
 plot(data.frame(exprs(pool.ff))$Time, log10(data.frame(exprs(pool.ff))$Y89Di), cex=0.1, xlab='time', ylab='CD45', ylim=c(-1,4))
 ```
 
-Now let's transform the data and find the beads, which appear in the Eu151 and Eu153 channels.
+Now let's transform the data and find the beads, which appear in the Eu151 and Eu153 channels (among others).
 
 ```{r}
 pool.ff <- pool.ff[,!colnames(pool.ff) %in% c('Event_length', 'Time', 'Offset', 'Center', 'Width', 'Residual')]
@@ -68,15 +68,14 @@ plot(data.frame(exprs(proc.ff))$Eu151Di, data.frame(exprs(proc.ff))$Eu153Di, xla
 Remove these beads and again re-plot.
 
 ```{r}
-beads <- rectangleGate(filterId="beadgate", list("Eu153Di"=c(2.5, Inf),
-"Eu153Di"=c(2.5, Inf)))
+beads <- rectangleGate(filterId="beadgate", list("Eu153Di"=c(2.5, Inf)))
 
 beadfilt <- filter(proc.ff, beads)
 filt_set <- split(proc.ff, beadfilt)['beadgate-'][[1]]
 plot(data.frame(exprs(filt_set))$Eu151Di, data.frame(exprs(filt_set))$Eu153Di, xlab='Eu151', ylab='Eu153')
 ```
 
-Gate on Ir DNA markers for singlets.  Unfortunately, most of this data is in doublets so we'll use some options from dnaGate to select the smaller peak.
+Gate on Ir DNA markers for singlets.  These naive / early activated murine T cells are small and unfortunately perhaps a bit too concentrated when run, which led to the clogging gated out earlier. A separate experiment using whole spenocytes (T and B cells) demonstrated that many of the cells in the peak of higher DNA content were B/T doublets, suggesting that the larger, higher DNA content peak here is also made up largely of doublets. To avoid these, we'll use some options from dnaGate to select the smaller peak. Subsequent gating demonstrates that these are alive, CD8+ T cells.
 
 ```{r}
 hist(data.frame(exprs(filt_set))$Ir191Di, breaks=200, xlab='Ir191', main='')
